@@ -42,6 +42,7 @@ executable minici
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0
                     , directory >=1.3 && <1.4
+                    , filepath >=1.4 && <1.5
                     , mtl >=2.2 && <2.3
                     , process >=1.6 && <1.7
                     , text >=1.2 && <1.3
