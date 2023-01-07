@@ -81,7 +81,10 @@ findConfig = go "."
         doesFileExist (path </> name) >>= \case
             True -> return $ Just $ path </> name
             False -> doesDirectoryExist (path </> "..") >>= \case
-                True -> go (path </> "..")
+                True -> do
+                    parent <- canonicalizePath $ path </> ".."
+                    if parent /= path then go parent
+                                      else return Nothing
                 False -> return Nothing
 
 parseConfig :: FilePath -> IO Config
