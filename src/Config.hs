@@ -45,33 +45,49 @@ instance FromYAML Config where
                            (Anchor pos _ _, _) -> pos
         jobs <- fmap catMaybes $ forM (sortBy (comparing $ posLine . getpos) $ M.assocs m) $ \case
             (Scalar _ (SStr tag), node) | ["job", name] <- T.words tag -> do
-                flip (withMap "Job") node $ \j -> Just <$> choice
-                    [ cabalJob name =<< j .: "cabal"
-                    , shellJob name =<< j .: "shell"
-                    ]
+                Just <$> parseJob name node
             _ -> return Nothing
         return $ Config jobs
 
-cabalJob :: Text -> Node Pos -> Parser Job
-cabalJob name = withMap "cabal job" $ \m -> do
+parseJob :: Text -> Node Pos -> Parser Job
+parseJob name node = flip (withMap "Job") node $ \j -> Job
+    <$> pure (JobName name)
+    <*> choice
+        [ cabalJob =<< j .: "cabal"
+        , shellJob =<< j .: "shell"
+        ]
+    <*> parseArtifacts j
+    <*> (maybe (return []) parseUses =<< j .:? "uses")
+
+cabalJob :: Node Pos -> Parser [CreateProcess]
+cabalJob = withMap "cabal job" $ \m -> do
     ghcOptions <- m .:? "ghc-options" >>= \case
         Nothing -> return []
         Just s -> withSeq "GHC option list" (mapM (withStr "GHC option" return)) s
 
-    return Job
-        { jobName = JobName name
-        , jobRecipe = [ proc "cabal" $ concat [ ["build"], ("--ghc-option="++) . T.unpack <$> ghcOptions ] ]
-        , jobArtifacts = map (\(ArtifactName aname) -> (ArtifactName "bin", proc "cabal" ["list-bin", T.unpack aname])) []
-        }
+    return
+        [ proc "cabal" $ concat [ ["build"], ("--ghc-option="++) . T.unpack <$> ghcOptions ] ]
 
-shellJob :: Text -> Node Pos -> Parser Job
-shellJob name = withSeq "shell commands" $ \xs -> do
-    recipe <- forM xs $ withStr "shell command" $ return . T.unpack
-    return Job
-        { jobName = JobName name
-        , jobRecipe = map shell recipe
-        , jobArtifacts = []
-        }
+shellJob :: Node Pos -> Parser [CreateProcess]
+shellJob = withSeq "shell commands" $ \xs -> do
+    fmap (map shell) $ forM xs $ withStr "shell command" $ return . T.unpack
+
+parseArtifacts :: Mapping Pos -> Parser [(ArtifactName, CreateProcess)]
+parseArtifacts m = do
+    fmap catMaybes $ forM (M.assocs m) $ \case
+        (Scalar _ (SStr tag), node) | ["artifact", name] <- T.words tag -> do
+            Just <$> parseArtifact name node
+        _ -> return Nothing
+  where
+    parseArtifact name = withMap "Artifact" $ \am -> do
+        path <- am .: "path"
+        return (ArtifactName name, proc "echo" [ T.unpack path ])
+
+parseUses :: Node Pos -> Parser [(JobName, ArtifactName)]
+parseUses = withSeq "Uses list" $ mapM $
+    withStr "Artifact reference" $ \text -> do
+        [job, art] <- return $ T.split (== '.') text
+        return (JobName job, ArtifactName art)
 
 findConfig :: IO (Maybe FilePath)
 findConfig = go "."

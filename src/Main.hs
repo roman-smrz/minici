@@ -1,5 +1,7 @@
 module Main (main) where
 
+import Control.Concurrent.STM
+
 import Control.Monad
 
 import System.IO
@@ -30,10 +32,11 @@ main = do
         let shortCid = take 7 cid
         putStr $ shortCid <> " " <> fitToLength 50 desc
         hFlush stdout
-        results <- forM (configJobs config) $ \job -> do
+        outs <- runJobs "./.minici" cid $ configJobs config
+        results <- forM outs $ \outVar -> do
             putStr " "
             hFlush stdout
-            out <- runJob "./.minici" cid job
+            out <- atomically $ maybe retry return =<< readTVar outVar
             if | outStatus out -> do
                     putStr "\ESC[92m✓\ESC[0m      "
                | otherwise -> do
