@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               minici
-version:            0.1.0.0
+version:            0.1.0
 synopsis:
 
 -- A longer description of the package.
