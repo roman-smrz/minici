@@ -9,11 +9,31 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 
+import System.Console.GetOpt
+import System.Environment
+import System.Exit
 import System.IO
 import System.Process
 
 import Config
 import Job
+import Version
+
+data CmdlineOptions = CmdlineOptions
+    { optShowVersion :: Bool
+    }
+
+defaultCmdlineOptions :: CmdlineOptions
+defaultCmdlineOptions = CmdlineOptions
+    { optShowVersion = False
+    }
+
+options :: [OptDescr (CmdlineOptions -> CmdlineOptions)]
+options =
+    [ Option ['V'] ["version"]
+        (NoArg $ \opts -> opts { optShowVersion = True })
+        "show version and exit"
+    ]
 
 fitToLength :: Int -> Text -> Text
 fitToLength maxlen str | len <= maxlen = str <> T.replicate (maxlen - len) " "
@@ -58,6 +78,16 @@ displayStatusLine prefix1 prefix2 statuses = do
 
 main :: IO ()
 main = do
+    args <- getArgs
+    opts <- case getOpt Permute options args of
+        (o, _, []) -> return (foldl (flip id) defaultCmdlineOptions o)
+        (_, _, errs) -> ioError (userError (concat errs ++ usageInfo header options))
+            where header = "Usage: minici [OPTION...]"
+
+    when (optShowVersion opts) $ do
+        putStrLn versionLine
+        exitSuccess
+
     Just configPath <- findConfig
     config <- parseConfig configPath
 
