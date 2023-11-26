@@ -45,7 +45,7 @@ showStatus blink = \case
     JobQueued       -> "\ESC[94m…\ESC[0m      "
     JobWaiting uses -> "\ESC[94m~" <> fitToLength 6 (T.intercalate "," (map textJobName uses)) <> "\ESC[0m"
     JobSkipped      ->  "\ESC[0m-\ESC[0m      "
-    JobRunning      -> "\ESC[96m" <> (if blink then "*" else "⋅") <> "\ESC[0m      "
+    JobRunning      -> "\ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m      "
     JobError _      -> "\ESC[91m!!\ESC[0m     "
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
