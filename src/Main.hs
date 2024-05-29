@@ -20,17 +20,22 @@ import Job
 import Version
 
 data CmdlineOptions = CmdlineOptions
-    { optShowVersion :: Bool
+    { optShowHelp :: Bool
+    , optShowVersion :: Bool
     }
 
 defaultCmdlineOptions :: CmdlineOptions
 defaultCmdlineOptions = CmdlineOptions
-    { optShowVersion = False
+    { optShowHelp = False
+    , optShowVersion = False
     }
 
 options :: [OptDescr (CmdlineOptions -> CmdlineOptions)]
 options =
-    [ Option ['V'] ["version"]
+    [ Option ['h'] ["help"]
+        (NoArg $ \opts -> opts { optShowHelp = True })
+        "show this help and exit"
+    , Option ['V'] ["version"]
         (NoArg $ \opts -> opts { optShowVersion = True })
         "show version and exit"
     ]
@@ -81,8 +86,14 @@ main = do
     args <- getArgs
     opts <- case getOpt Permute options args of
         (o, _, []) -> return (foldl (flip id) defaultCmdlineOptions o)
-        (_, _, errs) -> ioError (userError (concat errs ++ usageInfo header options))
-            where header = "Usage: minici [OPTION...]"
+        (_, _, errs) -> do
+            hPutStrLn stderr $ concat errs <> "Try `minici --help' for more information."
+            exitFailure
+
+    when (optShowHelp opts) $ do
+        let header = "Usage: minici [<option>...]"
+        putStr $ usageInfo header options
+        exitSuccess
 
     when (optShowVersion opts) $ do
         putStrLn versionLine
