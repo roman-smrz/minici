@@ -17,7 +17,8 @@ maintainer:         roman.smrz@seznam.cz
 -- A copyright notice.
 -- copyright:
 -- category:
--- extra-source-files: CHANGELOG.md
+extra-doc-files:
+    CHANGELOG.md
 
 executable minici
     main-is:          Main.hs
