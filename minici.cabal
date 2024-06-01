@@ -24,11 +24,14 @@ executable minici
     ghc-options:      -Wall -threaded
 
     -- Modules included in this executable, other than Main.
-    other-modules:      Config
-                        Job
-                        Paths_minici
-                        Version
-                        Version.Git
+    other-modules:
+        Command
+        Command.Run
+        Config
+        Job
+        Paths_minici
+        Version
+        Version.Git
 
     -- LANGUAGE extensions used by modules in this package.
     other-extensions:    TemplateHaskell
