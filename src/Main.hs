@@ -1,6 +1,7 @@
 module Main (main) where
 
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.Reader
 
 import Data.List
@@ -52,7 +53,7 @@ lookupCommand name = find p commands
 main :: IO ()
 main = do
     args <- getArgs
-    (opts, cmdargs) <- case getOpt Permute options args of
+    (opts, cmdargs) <- case getOpt RequireOrder options args of
         (o, cmdargs, []) -> return (foldl (flip id) defaultCmdlineOptions o, cmdargs)
         (_, _, errs) -> do
             hPutStrLn stderr $ concat errs <> "Try `minici --help' for more information."
@@ -81,9 +82,19 @@ main = do
     runSomeCommand ncmd cargs
 
 runSomeCommand :: SomeCommandType -> [ String ] -> IO ()
-runSomeCommand (SC tproxy) _ = do
+runSomeCommand (SC tproxy) args = do
+    let exitWithErrors errs = do
+            hPutStr stderr $ concat errs
+            exitFailure
+
+    (opts, cmdargs) <- case getOpt Permute (commandOptions tproxy) args of
+        (o, strargs, []) -> case runExcept $ argsFromStrings strargs of
+            Left err -> exitWithErrors [ err <> "\n" ]
+            Right cmdargs -> return (foldl (flip id) (defaultCommandOptions tproxy) o, cmdargs)
+        (_, _, errs) -> exitWithErrors errs
+
     Just configPath <- findConfig
     config <- parseConfig configPath
-    let cmd = commandInit tproxy
+    let cmd = commandInit tproxy opts cmdargs
     let CommandExec exec = commandExec cmd
     flip runReaderT config exec

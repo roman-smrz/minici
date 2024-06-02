@@ -34,22 +34,26 @@ executable minici
         Version
         Version.Git
 
-    -- LANGUAGE extensions used by modules in this package.
-    other-extensions:    TemplateHaskell
-    default-extensions:  ExistentialQuantification
-                         FlexibleContexts
-                         FlexibleInstances
-                         GADTs
-                         GeneralizedNewtypeDeriving
-                         ImportQualifiedPost
-                         LambdaCase
-                         MultiParamTypeClasses
-                         MultiWayIf
-                         OverloadedStrings
-                         ScopedTypeVariables
-                         TupleSections
-                         TypeApplications
-    -- other-extensions:
+    default-extensions:
+        DefaultSignatures
+        ExistentialQuantification
+        FlexibleContexts
+        FlexibleInstances
+        GADTs
+        GeneralizedNewtypeDeriving
+        ImportQualifiedPost
+        LambdaCase
+        MultiParamTypeClasses
+        MultiWayIf
+        OverloadedStrings
+        ScopedTypeVariables
+        TupleSections
+        TypeApplications
+        TypeFamilies
+
+    other-extensions:
+        TemplateHaskell
+
     build-depends:    base              >=4.15 && <5
                     , bytestring        >=0.10 && <0.12
                     , containers        >=0.6 && <0.7

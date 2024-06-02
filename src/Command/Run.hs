@@ -7,10 +7,12 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
 
+import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
 
+import System.Exit
 import System.IO
 import System.Process
 
@@ -18,20 +20,33 @@ import Command
 import Config
 import Job
 
-data RunCommand = RunCommand
+data RunCommand = RunCommand Text
 
 instance Command RunCommand where
     commandName _ = "run"
 
-    commandInit _ = RunCommand
-    commandExec _ = cmdRun
+    type CommandArguments RunCommand = Maybe Text
 
-cmdRun :: CommandExec ()
-cmdRun = do
+    commandInit _ _ = RunCommand . fromMaybe "HEAD"
+    commandExec = cmdRun
+
+cmdRun :: RunCommand -> CommandExec ()
+cmdRun (RunCommand changeset) = do
     config <- getConfig
+    ( base, tip ) <- case T.splitOn (T.pack "..") changeset of
+        base : tip : _ -> return ( T.unpack base, T.unpack tip )
+        [ param ] -> liftIO $ do
+            [ deref ] <- readProcessWithExitCode "git" [ "symbolic-ref", "--quiet", T.unpack param ] "" >>= \case
+                ( ExitSuccess, out, _ ) -> return $ lines out
+                ( _, _, _ ) -> return [ T.unpack param ]
+            [ _, tip ] : _ <- fmap words . lines <$> readProcess "git" [ "show-ref", deref ] ""
+            [ base ] <- lines <$> readProcess "git" [ "for-each-ref", "--format=%(upstream)", tip ] ""
+            return ( base, tip )
+        [] -> error "splitOn should not return empty list"
+
     liftIO $ do
         commits <- map (fmap (drop 1) . (span (/=' '))) . lines <$>
-            readProcess "git" ["log", "--pretty=oneline", "--first-parent", "--reverse", "origin/master..HEAD"] ""
+            readProcess "git" [ "log", "--pretty=oneline", "--first-parent", "--reverse", base <> ".." <> tip ] ""
 
         putStr $ replicate (8 + 50) ' '
         forM_ (configJobs config) $ \job -> do
