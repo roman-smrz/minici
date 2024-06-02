@@ -1,5 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 
+-- "Pattern match is redundant" warning can be generated based on template
+-- haskell $$tGitVersion value
+{-# OPTIONS_GHC -Wno-error=overlapping-patterns #-}
+
 module Version (
     versionLine,
 ) where

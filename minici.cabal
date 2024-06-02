@@ -20,9 +20,24 @@ maintainer:         roman.smrz@seznam.cz
 extra-doc-files:
     CHANGELOG.md
 
+flag ci
+    description:    Options for CI testing
+    default: False
+    manual: True
+
 executable minici
     main-is:          Main.hs
-    ghc-options:      -Wall -threaded
+
+    ghc-options:
+        -Wall
+        -threaded
+        -fdefer-typed-holes
+
+    if flag(ci)
+        ghc-options:
+            -Werror
+            -- sometimes needed for backward/forward compatibility:
+            -Wno-error=unused-imports
 
     -- Modules included in this executable, other than Main.
     other-modules:
