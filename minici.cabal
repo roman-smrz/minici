@@ -1,15 +1,16 @@
 cabal-version:      3.0
 name:               minici
 version:            0.1.1
-synopsis:
-
--- A longer description of the package.
--- description:
-homepage:
+synopsis:           Minimalist CI framework to run checks on local machine
+description:
+    Runs defined jobs, for example to build and test a project, for each git
+    commit in a given set and reports results. The jobs are configured in
+    a simple YAML file and can produce artifacts to be used in other steps.
+homepage:           https://erebosprotocol.net/minici
 
 -- A URL where users can report bugs.
 -- bug-reports:
-license:            GPL-3.0-or-later
+license:            GPL-3.0-only
 license-file:       LICENSE
 author:             Roman Smrž
 maintainer:         roman.smrz@seznam.cz
@@ -17,6 +18,7 @@ maintainer:         roman.smrz@seznam.cz
 -- A copyright notice.
 -- copyright:
 -- category:
+category:           Testing
 extra-doc-files:
     CHANGELOG.md
 
