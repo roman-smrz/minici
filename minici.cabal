@@ -42,7 +42,6 @@ executable minici
             -- sometimes needed for backward/forward compatibility:
             -Wno-error=unused-imports
 
-    -- Modules included in this executable, other than Main.
     other-modules:
         Command
         Command.Run
@@ -51,6 +50,8 @@ executable minici
         Paths_minici
         Version
         Version.Git
+    autogen-modules:
+        Paths_minici
 
     default-extensions:
         DefaultSignatures
