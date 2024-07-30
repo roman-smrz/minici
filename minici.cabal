@@ -28,6 +28,10 @@ flag ci
     default: False
     manual: True
 
+source-repository head
+    type:       git
+    location:   git://erebosprotocol.net/minici
+
 executable minici
     main-is:          Main.hs
 
