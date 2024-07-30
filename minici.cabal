@@ -20,6 +20,7 @@ maintainer:         roman.smrz@seznam.cz
 -- category:
 category:           Testing
 extra-doc-files:
+    README.md
     CHANGELOG.md
 
 flag ci
