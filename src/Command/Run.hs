@@ -24,6 +24,7 @@ data RunCommand = RunCommand Text
 
 instance Command RunCommand where
     commandName _ = "run"
+    commandDescription _ = "Execude jobs per minici.yaml for given commits"
 
     type CommandArguments RunCommand = Maybe Text
 

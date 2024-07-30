@@ -19,6 +19,7 @@ import Config
 
 class CommandArgumentsType (CommandArguments c) => Command c where
     commandName :: proxy c -> String
+    commandDescription :: proxy c -> String
 
     type CommandOptions c :: Type
     type CommandOptions c = ()

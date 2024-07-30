@@ -61,8 +61,19 @@ main = do
             exitFailure
 
     when (optShowHelp opts) $ do
-        let header = "Usage: minici [<option>...] <command> [<args>]"
-        putStr $ usageInfo header options
+        let header = "Usage: minici [<option>...] <command> [<args>]\n\nCommon options are:"
+            commandDesc (SC proxy) = "  " <> padCommand (commandName proxy) <> commandDescription proxy
+
+            padTo n str = str <> replicate (n - length str) ' '
+            padCommand = padTo (maxCommandNameLength + 3)
+            commandNameLength (SC proxy) = length $ commandName proxy
+            maxCommandNameLength = maximum $ map commandNameLength commands
+
+        putStr $ usageInfo header options <> unlines (
+            [ ""
+            , "Available commands:"
+            ] ++ map commandDesc commands
+          )
         exitSuccess
 
     when (optShowVersion opts) $ do
