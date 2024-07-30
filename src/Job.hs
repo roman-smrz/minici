@@ -14,6 +14,7 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import Data.List
 import Data.Text (Text)
