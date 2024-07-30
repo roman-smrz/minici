@@ -27,6 +27,15 @@ instance Command RunCommand where
 
     type CommandArguments RunCommand = Maybe Text
 
+    commandUsage _ = T.pack $ unlines $
+        [ "Usage: minici run"
+        , "         run jobs for commits on current branch not yet in upstream branch"
+        , "   or: minici run <ref>"
+        , "         run jobs for commits on <ref> not yet in its upstream ref"
+        , "   or: minici run <commit>..<commit>"
+        , "         run jobs for commits in given range"
+        ]
+
     commandInit _ _ = RunCommand . fromMaybe "HEAD"
     commandExec = cmdRun
 

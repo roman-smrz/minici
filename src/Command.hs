@@ -31,6 +31,8 @@ class CommandArgumentsType (CommandArguments c) => Command c where
     type CommandArguments c :: Type
     type CommandArguments c = ()
 
+    commandUsage :: proxy c -> Text
+
     commandInit :: CommandArgumentsType (CommandArguments c) => proxy c -> CommandOptions c -> CommandArguments c -> c
     commandExec :: c -> CommandExec ()
 

@@ -6,6 +6,7 @@ import Control.Monad.Reader
 
 import Data.List
 import Data.Proxy
+import Data.Text qualified as T
 
 import System.Console.GetOpt
 import System.Environment
@@ -81,20 +82,46 @@ main = do
 
     runSomeCommand ncmd cargs
 
+data FullCommandOptions c = FullCommandOptions
+    { fcoSpecific :: CommandOptions c
+    , fcoShowHelp :: Bool
+    }
+
+defaultFullOptions :: Command c => proxy c -> FullCommandOptions c
+defaultFullOptions proxy = FullCommandOptions
+    { fcoSpecific = defaultCommandOptions proxy
+    , fcoShowHelp = False
+    }
+
+fullCommandOptions :: Command c => proxy c -> [ OptDescr (FullCommandOptions c -> FullCommandOptions c) ]
+fullCommandOptions proxy =
+    map (fmap $ \f fco -> fco { fcoSpecific = f (fcoSpecific fco) } ) (commandOptions proxy)
+    ++
+    [ Option [ 'h' ] [ "help" ]
+        (NoArg $ \opts -> opts { fcoShowHelp = True })
+        "show this help and exit"
+    ]
+
 runSomeCommand :: SomeCommandType -> [ String ] -> IO ()
 runSomeCommand (SC tproxy) args = do
     let exitWithErrors errs = do
-            hPutStr stderr $ concat errs
+            hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
             exitFailure
 
-    (opts, cmdargs) <- case getOpt Permute (commandOptions tproxy) args of
+    (opts, cmdargs) <- case getOpt Permute (fullCommandOptions tproxy) args of
         (o, strargs, []) -> case runExcept $ argsFromStrings strargs of
             Left err -> exitWithErrors [ err <> "\n" ]
-            Right cmdargs -> return (foldl (flip id) (defaultCommandOptions tproxy) o, cmdargs)
+            Right cmdargs -> do
+                let fullOptions = foldl (flip id) (defaultFullOptions tproxy) o
+                return (fullOptions, cmdargs)
         (_, _, errs) -> exitWithErrors errs
+
+    when (fcoShowHelp opts) $ do
+        putStr $ usageInfo (T.unpack $ commandUsage tproxy) (fullCommandOptions tproxy)
+        exitSuccess
 
     Just configPath <- findConfig
     config <- parseConfig configPath
-    let cmd = commandInit tproxy opts cmdargs
+    let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
     let CommandExec exec = commandExec cmd
     flip runReaderT config exec
