@@ -27,6 +27,9 @@ import System.FilePath
 import System.IO
 import System.Process
 
+import Repo
+
+
 data Job = Job
     { jobName :: JobName
     , jobRecipe :: [CreateProcess]
@@ -93,15 +96,14 @@ textJobStatus = \case
     JobDone _ -> "done"
 
 
-runJobs :: FilePath -> String -> [Job] -> IO [TVar (JobStatus JobOutput)]
-runJobs dir cid jobs = do
+runJobs :: FilePath -> Commit -> [Job] -> IO [TVar (JobStatus JobOutput)]
+runJobs dir commit jobs = do
     results <- forM jobs $ \job -> (job,) <$> newTVarIO JobQueued
-    gitLock <- newMVar ()
     forM_ results $ \(job, outVar) -> void $ forkIO $ do
         res <- runExceptT $ do
             uses <- waitForUsedArtifacts job results outVar
             liftIO $ atomically $ writeTVar outVar JobRunning
-            prepareJob gitLock dir cid job $ \checkoutPath jdir -> do
+            prepareJob dir commit job $ \checkoutPath jdir -> do
                 updateStatusFile (jdir </> "status") outVar
                 runJob job uses checkoutPath jdir
 
@@ -150,18 +152,16 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
         T.writeFile path $ textJobStatus status <> "\n"
         when (not (jobStatusFinished status)) $ loop $ Just status
 
-prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => MVar () -> FilePath -> String -> Job -> (FilePath -> FilePath -> m a) -> m a
-prepareJob gitLock dir cid job inner = do
+prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
+prepareJob dir commit job inner = do
     [checkoutPath] <- fmap lines $ liftIO $
         readProcess "mktemp" ["-d", "-t", "minici.XXXXXXXXXX"] ""
 
     flip finally (liftIO $ removeDirectoryRecursive checkoutPath) $ do
-        tid <- liftIO $ withMVar gitLock $ \_ -> do
-            "" <- readProcess "git" ["--work-tree=" <> checkoutPath, "restore", "--source=" <> cid, "--", "."] ""
-            ["tree", tid]:_ <- map words . lines <$> readProcess "git" ["cat-file", "-p", cid] ""
-            return tid
+        checkoutAt commit checkoutPath
+        tid <- readTreeId commit
 
-        let jdir = dir </> "jobs" </> tid </> stringJobName (jobName job)
+        let jdir = dir </> "jobs" </> showTreeId tid </> stringJobName (jobName job)
         liftIO $ createDirectoryIfMissing True jdir
 
         inner checkoutPath jdir

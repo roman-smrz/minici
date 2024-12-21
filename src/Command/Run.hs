@@ -19,6 +19,7 @@ import System.Process
 import Command
 import Config
 import Job
+import Repo
 
 data RunCommand = RunCommand Text
 
@@ -55,18 +56,18 @@ cmdRun (RunCommand changeset) = do
         [] -> error "splitOn should not return empty list"
 
     liftIO $ do
-        commits <- map (fmap (drop 1) . (span (/=' '))) . lines <$>
-            readProcess "git" [ "log", "--pretty=oneline", "--first-parent", "--reverse", base <> ".." <> tip ] ""
+        Just repo <- openRepo "."
+        commits <- listCommits repo (base <> ".." <> tip)
 
         putStr $ replicate (8 + 50) ' '
         forM_ (configJobs config) $ \job -> do
             T.putStr $ (" "<>) $ fitToLength 7 $ textJobName $ jobName job
         putStrLn ""
 
-        forM_ commits $ \(cid, desc) -> do
-            let shortCid = T.pack $ take 7 cid
-            outs <- runJobs "./.minici" cid $ configJobs config
-            displayStatusLine shortCid (" " <> fitToLength 50 (T.pack desc)) outs
+        forM_ commits $ \commit -> do
+            let shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
+            outs <- runJobs "./.minici" commit $ configJobs config
+            displayStatusLine shortCid (" " <> fitToLength 50 (commitDescription commit)) outs
 
 
 fitToLength :: Int -> Text -> Text

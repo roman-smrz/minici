@@ -52,6 +52,7 @@ executable minici
         Config
         Job
         Paths_minici
+        Repo
         Version
         Version.Git
     autogen-modules:
@@ -69,6 +70,7 @@ executable minici
         MultiParamTypeClasses
         MultiWayIf
         OverloadedStrings
+        RecordWildCards
         ScopedTypeVariables
         TupleSections
         TypeApplications
