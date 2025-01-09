@@ -7,6 +7,7 @@ import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Reader
 
+import Data.List
 import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -43,7 +44,6 @@ instance Command RunCommand where
 
 cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand changeset) = do
-    config <- getConfig
     ( base, tip ) <- case T.splitOn (T.pack "..") changeset of
         base : tip : _ -> return ( T.unpack base, T.unpack tip )
         [ param ] -> liftIO $ do
@@ -58,16 +58,26 @@ cmdRun (RunCommand changeset) = do
     liftIO $ do
         Just repo <- openRepo "."
         commits <- listCommits repo (base <> ".." <> tip)
+        jobssets <- mapM loadJobSetForCommit commits
+        let names = nub $ map jobName $ concatMap jobsetJobs jobssets
 
         putStr $ replicate (8 + 50) ' '
-        forM_ (configJobs config) $ \job -> do
-            T.putStr $ (" "<>) $ fitToLength 7 $ textJobName $ jobName job
+        forM_ names $ \name -> do
+            T.putStr $ (" "<>) $ fitToLength 7 $ textJobName name
         putStrLn ""
 
-        forM_ commits $ \commit -> do
-            let shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
-            outs <- runJobs "./.minici" commit $ configJobs config
-            displayStatusLine shortCid (" " <> fitToLength 50 (commitDescription commit)) outs
+        forM_ jobssets $ \jobset -> do
+            let commit = jobsetCommit jobset
+                shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
+                shortDesc = fitToLength 50 (commitDescription commit)
+            case jobsetJobsEither jobset of
+                Right jobs -> do
+                    outs <- runJobs "./.minici" commit jobs
+                    let findJob name = snd <$> find ((name ==) . jobName . fst) outs
+                    displayStatusLine shortCid (" " <> shortDesc) $ map findJob names
+                Left err -> do
+                    T.putStrLn $ "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
+                    hFlush stdout
 
 
 fitToLength :: Int -> Text -> Text
@@ -85,28 +95,29 @@ showStatus blink = \case
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
 
-displayStatusLine :: Text -> Text -> [TVar (JobStatus JobOutput)] -> IO ()
+displayStatusLine :: Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
 displayStatusLine prefix1 prefix2 statuses = do
     blinkVar <- newTVarIO False
     t <- forkIO $ forever $ do
         threadDelay 500000
         atomically $ writeTVar blinkVar . not =<< readTVar blinkVar
-    go blinkVar ""
+    go blinkVar "\0"
     killThread t
   where
     go blinkVar prev = do
         (ss, cur) <- atomically $ do
-            ss <- mapM readTVar statuses
+            ss <- mapM (sequence . fmap readTVar) statuses
             blink <- readTVar blinkVar
-            let cur = T.concat $ map ((" " <>) . showStatus blink) ss
+            let cur = T.concat $ map (maybe "        " ((" " <>) . showStatus blink)) ss
             when (cur == prev) retry
             return (ss, cur)
         when (not $ T.null prev) $ putStr "\r"
-        let prefix1' = if any jobStatusFailed ss then "\ESC[91m" <> prefix1 <> "\ESC[0m"
-                                                 else prefix1
+        let prefix1' = if any (maybe False jobStatusFailed) ss
+                         then "\ESC[91m" <> prefix1 <> "\ESC[0m"
+                         else prefix1
         T.putStr $ prefix1' <> prefix2 <> cur
         hFlush stdout
 
-        if all jobStatusFinished ss
+        if all (maybe True jobStatusFinished) ss
            then T.putStrLn ""
            else go blinkVar cur

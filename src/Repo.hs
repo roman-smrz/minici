@@ -7,6 +7,7 @@ module Repo (
     listCommits,
     checkoutAt,
     readTreeId,
+    readCommittedFile,
 ) where
 
 import Control.Concurrent
@@ -15,6 +16,7 @@ import Control.Monad.IO.Class
 
 import Data.ByteString (ByteString)
 import Data.ByteString.Char8 qualified as BC
+import Data.ByteString.Lazy qualified as BL
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -93,3 +95,28 @@ readTreeId Commit {..} = do
     liftIO $ withMVar gitLock $ \_ -> do
         [ "tree", tid ] : _ <- map words . lines <$> readProcess "git" [ "--git-dir=" <> gitDir, "cat-file", "commit", showCommitId commitId ] ""
         return $ TreeId $ BC.pack tid
+
+
+readCommittedFile :: Commit -> FilePath -> IO (Maybe BL.ByteString)
+readCommittedFile Commit {..} path = do
+    let GitRepo {..} = commitRepo
+    liftIO $ withMVar gitLock $ \_ -> do
+        let cmd = (proc "git" [ "--git-dir=" <> gitDir, "cat-file", "blob", showCommitId commitId <> ":" <> path ])
+                { std_in = NoStream
+                , std_out = CreatePipe
+                }
+        createProcess cmd >>= \( _, mbstdout, _, ph ) -> if
+            | Just stdout <- mbstdout -> do
+                content <- BL.hGetContents stdout
+
+                -- check if there will be some output:
+                case BL.uncons content of
+                    Just (c, _) -> c `seq` return ()
+                    Nothing -> return ()
+
+                getProcessExitCode ph >>= \case
+                    Just code | code /= ExitSuccess ->
+                        return Nothing
+                    _ ->
+                        return (Just content)
+            | otherwise -> error "createProcess must return stdout handle"

@@ -2,6 +2,9 @@ module Config (
     Config(..),
     findConfig,
     parseConfig,
+
+    loadConfigForCommit,
+    loadJobSetForCommit,
 ) where
 
 import Control.Monad
@@ -17,11 +20,16 @@ import Data.Text qualified as T
 import Data.YAML
 
 import System.Directory
-import System.Exit
 import System.FilePath
 import System.Process
 
-import Job
+import Job.Types
+import Repo
+
+
+configFileName :: FilePath
+configFileName = "minici.yaml"
+
 
 data Config = Config
     { configJobs :: [Job]
@@ -92,10 +100,9 @@ parseUses = withSeq "Uses list" $ mapM $
 findConfig :: IO (Maybe FilePath)
 findConfig = go "."
   where
-    name = "minici.yaml"
     go path = do
-        doesFileExist (path </> name) >>= \case
-            True -> return $ Just $ path </> name
+        doesFileExist (path </> configFileName) >>= \case
+            True -> return $ Just $ path </> configFileName
             False -> doesDirectoryExist (path </> "..") >>= \case
                 True -> do
                     parent <- canonicalizePath $ path </> ".."
@@ -103,11 +110,23 @@ findConfig = go "."
                                       else return Nothing
                 False -> return Nothing
 
-parseConfig :: FilePath -> IO Config
-parseConfig path = do
-    contents <- BS.readFile path
+parseConfig :: BS.ByteString -> Either String Config
+parseConfig contents = do
     case decode1 contents of
         Left (pos, err) -> do
-            putStr $ prettyPosWithSource pos contents err
-            exitFailure
-        Right conf -> return conf
+            Left $ prettyPosWithSource pos contents err
+        Right conf -> Right conf
+
+loadConfigForCommit :: Commit -> IO (Either String Config)
+loadConfigForCommit commit = do
+    readCommittedFile commit configFileName >>= return . \case
+        Just content -> either (\_ -> Left $ "failed to parse " <> configFileName) Right $ parseConfig content
+        Nothing -> Left $ configFileName <> " not found"
+
+loadJobSetForCommit :: Commit -> IO JobSet
+loadJobSetForCommit commit = toJobSet <$> loadConfigForCommit commit
+  where
+    toJobSet configEither = JobSet
+        { jobsetCommit = commit
+        , jobsetJobsEither = fmap configJobs configEither
+        }

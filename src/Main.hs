@@ -4,6 +4,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
 
+import Data.ByteString.Lazy qualified as BL
 import Data.List
 import Data.Proxy
 import Data.Text qualified as T
@@ -132,7 +133,11 @@ runSomeCommand (SC tproxy) args = do
         exitSuccess
 
     Just configPath <- findConfig
-    config <- parseConfig configPath
-    let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
-    let CommandExec exec = commandExec cmd
-    flip runReaderT config exec
+    BL.readFile configPath >>= return . parseConfig >>= \case
+        Left err -> do
+            putStr err
+            exitFailure
+        Right config -> do
+            let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
+            let CommandExec exec = commandExec cmd
+            flip runReaderT config exec

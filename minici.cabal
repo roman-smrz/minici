@@ -51,6 +51,7 @@ executable minici
         Command.Run
         Config
         Job
+        Job.Types
         Paths_minici
         Repo
         Version

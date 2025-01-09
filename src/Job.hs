@@ -1,5 +1,6 @@
 module Job (
     Job(..),
+    JobSet(..), jobsetJobs,
     JobOutput(..),
     JobName(..), stringJobName, textJobName,
     ArtifactName(..),
@@ -27,33 +28,15 @@ import System.FilePath
 import System.IO
 import System.Process
 
+import Job.Types
 import Repo
 
-
-data Job = Job
-    { jobName :: JobName
-    , jobRecipe :: [CreateProcess]
-    , jobArtifacts :: [(ArtifactName, CreateProcess)]
-    , jobUses :: [(JobName, ArtifactName)]
-    }
 
 data JobOutput = JobOutput
     { outName :: JobName
     , outArtifacts :: [ArtifactOutput]
     }
     deriving (Eq)
-
-data JobName = JobName Text
-    deriving (Eq, Ord, Show)
-
-stringJobName :: JobName -> String
-stringJobName (JobName name) = T.unpack name
-
-textJobName :: JobName -> Text
-textJobName (JobName name) = name
-
-data ArtifactName = ArtifactName Text
-    deriving (Eq, Ord, Show)
 
 data ArtifactOutput = ArtifactOutput
     { aoutName :: ArtifactName
@@ -96,7 +79,7 @@ textJobStatus = \case
     JobDone _ -> "done"
 
 
-runJobs :: FilePath -> Commit -> [Job] -> IO [TVar (JobStatus JobOutput)]
+runJobs :: FilePath -> Commit -> [Job] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
 runJobs dir commit jobs = do
     results <- forM jobs $ \job -> (job,) <$> newTVarIO JobQueued
     forM_ results $ \(job, outVar) -> void $ forkIO $ do
@@ -112,7 +95,7 @@ runJobs dir commit jobs = do
             _ -> return ()
 
         atomically $ writeTVar outVar $ either id JobDone res
-    return $ map snd results
+    return results
 
 waitForUsedArtifacts :: (MonadIO m, MonadError (JobStatus JobOutput) m) =>
     Job -> [(Job, TVar (JobStatus JobOutput))] -> TVar (JobStatus JobOutput) -> m [ArtifactOutput]
