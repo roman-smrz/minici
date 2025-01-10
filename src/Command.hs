@@ -1,8 +1,12 @@
 module Command (
+    CommonOptions(..),
+    defaultCommonOptions,
+
     Command(..),
     CommandArgumentsType(..),
 
     CommandExec(..),
+    getCommonOptions,
     getConfig,
 ) where
 
@@ -16,6 +20,15 @@ import Data.Text qualified as T
 import System.Console.GetOpt
 
 import Config
+
+data CommonOptions = CommonOptions
+    { optJobs :: Int
+    }
+
+defaultCommonOptions :: CommonOptions
+defaultCommonOptions = CommonOptions
+    { optJobs = 2
+    }
 
 class CommandArgumentsType (CommandArguments c) => Command c where
     commandName :: proxy c -> String
@@ -54,8 +67,11 @@ instance CommandArgumentsType (Maybe Text) where
     argsFromStrings _ = throwError "expected at most one argument"
 
 
-newtype CommandExec a = CommandExec (ReaderT Config IO a)
+newtype CommandExec a = CommandExec (ReaderT ( CommonOptions, Config ) IO a)
     deriving (Functor, Applicative, Monad, MonadIO)
 
+getCommonOptions :: CommandExec CommonOptions
+getCommonOptions = CommandExec (asks fst)
+
 getConfig :: CommandExec Config
-getConfig = CommandExec ask
+getConfig = CommandExec (asks snd)

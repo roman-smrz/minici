@@ -44,6 +44,7 @@ instance Command RunCommand where
 
 cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand changeset) = do
+    CommonOptions {..} <- getCommonOptions
     ( base, tip ) <- case T.splitOn (T.pack "..") changeset of
         base : tip : _ -> return ( T.unpack base, T.unpack tip )
         [ param ] -> liftIO $ do
@@ -56,6 +57,7 @@ cmdRun (RunCommand changeset) = do
         [] -> error "splitOn should not return empty list"
 
     liftIO $ do
+        mngr <- newJobManager optJobs
         Just repo <- openRepo "."
         commits <- listCommits repo (base <> ".." <> tip)
         jobssets <- mapM loadJobSetForCommit commits
@@ -72,7 +74,7 @@ cmdRun (RunCommand changeset) = do
                 shortDesc = fitToLength 50 (commitDescription commit)
             case jobsetJobsEither jobset of
                 Right jobs -> do
-                    outs <- runJobs "./.minici" commit jobs
+                    outs <- runJobs mngr "./.minici" commit jobs
                     let findJob name = snd <$> find ((name ==) . jobName . fst) outs
                     displayStatusLine shortCid (" " <> shortDesc) $ map findJob names
                 Left err -> do

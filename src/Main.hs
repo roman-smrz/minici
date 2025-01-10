@@ -22,12 +22,14 @@ import Version
 data CmdlineOptions = CmdlineOptions
     { optShowHelp :: Bool
     , optShowVersion :: Bool
+    , optCommon :: CommonOptions
     }
 
 defaultCmdlineOptions :: CmdlineOptions
 defaultCmdlineOptions = CmdlineOptions
     { optShowHelp = False
     , optShowVersion = False
+    , optCommon = defaultCommonOptions
     }
 
 options :: [OptDescr (CmdlineOptions -> CmdlineOptions)]
@@ -38,6 +40,9 @@ options =
     , Option ['V'] ["version"]
         (NoArg $ \opts -> opts { optShowVersion = True })
         "show version and exit"
+    , Option ['j'] ["jobs"]
+        (ReqArg (\num opts -> opts { optCommon = (optCommon opts) { optJobs = read num }}) "<num>")
+        ("number of jobs to run simultaneously (default " <> show (optJobs defaultCommonOptions) <> ")")
     ]
 
 data SomeCommandType = forall c. Command c => SC (Proxy c)
@@ -92,7 +97,7 @@ main = do
                     ]
                 exitFailure
 
-    runSomeCommand ncmd cargs
+    runSomeCommand (optCommon opts) ncmd cargs
 
 data FullCommandOptions c = FullCommandOptions
     { fcoSpecific :: CommandOptions c
@@ -114,8 +119,8 @@ fullCommandOptions proxy =
         "show this help and exit"
     ]
 
-runSomeCommand :: SomeCommandType -> [ String ] -> IO ()
-runSomeCommand (SC tproxy) args = do
+runSomeCommand :: CommonOptions -> SomeCommandType -> [ String ] -> IO ()
+runSomeCommand copts (SC tproxy) args = do
     let exitWithErrors errs = do
             hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
             exitFailure
@@ -140,4 +145,4 @@ runSomeCommand (SC tproxy) args = do
         Right config -> do
             let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
             let CommandExec exec = commandExec cmd
-            flip runReaderT config exec
+            flip runReaderT ( copts, config ) exec
