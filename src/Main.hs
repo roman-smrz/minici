@@ -17,6 +17,7 @@ import System.IO
 import Command
 import Command.Run
 import Config
+import Terminal
 import Version
 
 data CmdlineOptions = CmdlineOptions
@@ -120,7 +121,7 @@ fullCommandOptions proxy =
     ]
 
 runSomeCommand :: CommonOptions -> SomeCommandType -> [ String ] -> IO ()
-runSomeCommand copts (SC tproxy) args = do
+runSomeCommand ciOptions (SC tproxy) args = do
     let exitWithErrors errs = do
             hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
             exitFailure
@@ -142,7 +143,8 @@ runSomeCommand copts (SC tproxy) args = do
         Left err -> do
             putStr err
             exitFailure
-        Right config -> do
+        Right ciConfig -> do
             let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
             let CommandExec exec = commandExec cmd
-            flip runReaderT ( copts, config ) exec
+            ciTerminalOutput <- initTerminalOutput
+            flip runReaderT CommandInput {..} exec

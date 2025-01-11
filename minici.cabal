@@ -54,6 +54,7 @@ executable minici
         Job.Types
         Paths_minici
         Repo
+        Terminal
         Version
         Version.Git
     autogen-modules:

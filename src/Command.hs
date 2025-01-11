@@ -6,8 +6,10 @@ module Command (
     CommandArgumentsType(..),
 
     CommandExec(..),
+    CommandInput(..),
     getCommonOptions,
     getConfig,
+    getTerminalOutput,
 ) where
 
 import Control.Monad.Except
@@ -20,6 +22,7 @@ import Data.Text qualified as T
 import System.Console.GetOpt
 
 import Config
+import Terminal
 
 data CommonOptions = CommonOptions
     { optJobs :: Int
@@ -67,11 +70,20 @@ instance CommandArgumentsType (Maybe Text) where
     argsFromStrings _ = throwError "expected at most one argument"
 
 
-newtype CommandExec a = CommandExec (ReaderT ( CommonOptions, Config ) IO a)
+newtype CommandExec a = CommandExec (ReaderT CommandInput IO a)
     deriving (Functor, Applicative, Monad, MonadIO)
 
+data CommandInput = CommandInput
+    { ciOptions :: CommonOptions
+    , ciConfig :: Config
+    , ciTerminalOutput :: TerminalOutput
+    }
+
 getCommonOptions :: CommandExec CommonOptions
-getCommonOptions = CommandExec (asks fst)
+getCommonOptions = CommandExec (asks ciOptions)
 
 getConfig :: CommandExec Config
-getConfig = CommandExec (asks snd)
+getConfig = CommandExec (asks ciConfig)
+
+getTerminalOutput :: CommandExec TerminalOutput
+getTerminalOutput = CommandExec (asks ciTerminalOutput)

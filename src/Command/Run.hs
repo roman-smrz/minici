@@ -11,16 +11,16 @@ import Data.List
 import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
 
 import System.Exit
-import System.IO
 import System.Process
 
 import Command
 import Config
 import Job
 import Repo
+import Terminal
+
 
 data RunCommand = RunCommand Text
 
@@ -56,6 +56,7 @@ cmdRun (RunCommand changeset) = do
             return ( base, tip )
         [] -> error "splitOn should not return empty list"
 
+    tout <- getTerminalOutput
     liftIO $ do
         mngr <- newJobManager optJobs
         Just repo <- openRepo "."
@@ -63,12 +64,11 @@ cmdRun (RunCommand changeset) = do
         jobssets <- mapM loadJobSetForCommit commits
         let names = nub $ map jobName $ concatMap jobsetJobs jobssets
 
-        putStr $ replicate (8 + 50) ' '
-        forM_ names $ \name -> do
-            T.putStr $ (" "<>) $ fitToLength 7 $ textJobName name
-        putStrLn ""
+        void $ newLine tout $ T.concat $
+            T.replicate (8 + 50) " " :
+            map ((" "<>) . fitToLength 7 . textJobName) names
 
-        forM_ jobssets $ \jobset -> do
+        statuses <- forM jobssets $ \jobset -> do
             let commit = jobsetCommit jobset
                 shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
                 shortDesc = fitToLength 50 (commitDescription commit)
@@ -76,10 +76,17 @@ cmdRun (RunCommand changeset) = do
                 Right jobs -> do
                     outs <- runJobs mngr "./.minici" commit jobs
                     let findJob name = snd <$> find ((name ==) . jobName . fst) outs
-                    displayStatusLine shortCid (" " <> shortDesc) $ map findJob names
+                    displayStatusLine tout shortCid (" " <> shortDesc) $ map findJob names
+                    return $ map snd outs
                 Left err -> do
-                    T.putStrLn $ "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
-                    hFlush stdout
+                    void $ newLine tout $
+                        "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
+                    return []
+
+        -- wait for all jobs to complete
+        atomically $ forM_ (concat statuses) $ \tvar -> do
+            status <- readTVar tvar
+            when (not $ jobStatusFinished status) retry
 
 
 fitToLength :: Int -> Text -> Text
@@ -97,29 +104,30 @@ showStatus blink = \case
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
 
-displayStatusLine :: Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
-displayStatusLine prefix1 prefix2 statuses = do
+displayStatusLine :: TerminalOutput -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
+displayStatusLine tout prefix1 prefix2 statuses = do
     blinkVar <- newTVarIO False
     t <- forkIO $ forever $ do
         threadDelay 500000
         atomically $ writeTVar blinkVar . not =<< readTVar blinkVar
-    go blinkVar "\0"
-    killThread t
+    line <- newLine tout ""
+    void $ forkIO $ do
+        go line blinkVar "\0"
+        killThread t
   where
-    go blinkVar prev = do
+    go line blinkVar prev = do
         (ss, cur) <- atomically $ do
             ss <- mapM (sequence . fmap readTVar) statuses
             blink <- readTVar blinkVar
             let cur = T.concat $ map (maybe "        " ((" " <>) . showStatus blink)) ss
             when (cur == prev) retry
             return (ss, cur)
-        when (not $ T.null prev) $ putStr "\r"
+
         let prefix1' = if any (maybe False jobStatusFailed) ss
                          then "\ESC[91m" <> prefix1 <> "\ESC[0m"
                          else prefix1
-        T.putStr $ prefix1' <> prefix2 <> cur
-        hFlush stdout
+        redrawLine line $ prefix1' <> prefix2 <> cur
 
         if all (maybe True jobStatusFinished) ss
-           then T.putStrLn ""
-           else go blinkVar cur
+           then return ()
+           else go line blinkVar cur
