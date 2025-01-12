@@ -40,11 +40,13 @@ data Commit = Commit
 
 
 newtype CommitId = CommitId ByteString
+    deriving (Eq, Ord)
 
 showCommitId :: CommitId -> String
 showCommitId (CommitId cid) = BC.unpack cid
 
 newtype TreeId = TreeId ByteString
+    deriving (Eq, Ord)
 
 showTreeId :: TreeId -> String
 showTreeId (TreeId tid) = BC.unpack tid

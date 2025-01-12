@@ -36,3 +36,13 @@ data JobSet = JobSet
 
 jobsetJobs :: JobSet -> [ Job ]
 jobsetJobs = either (const []) id . jobsetJobsEither
+
+
+newtype JobId = JobId [ JobIdPart ]
+    deriving (Eq, Ord)
+
+data JobIdPart
+    = JobIdName JobName
+    | JobIdCommit CommitId
+    | JobIdTree TreeId
+    deriving (Eq, Ord)

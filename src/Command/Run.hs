@@ -104,6 +104,13 @@ showStatus blink = \case
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
 
+    JobDuplicate _ s -> case s of
+        JobQueued    -> "\ESC[94m^\ESC[0m      "
+        JobWaiting _ -> "\ESC[94m^\ESC[0m      "
+        JobSkipped   ->  "\ESC[0m-\ESC[0m      "
+        JobRunning   -> "\ESC[96m" <> (if blink then "*" else "^") <> "\ESC[0m      "
+        _            -> showStatus blink s
+
 displayStatusLine :: TerminalOutput -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
 displayStatusLine tout prefix1 prefix2 statuses = do
     blinkVar <- newTVarIO False
