@@ -36,6 +36,7 @@ data Commit = Commit
     { commitRepo :: Repo
     , commitId :: CommitId
     , commitDescription :: Text
+    , commitTreeId :: MVar (Maybe TreeId)
     }
 
 
@@ -79,6 +80,7 @@ listCommits commitRepo range = liftIO $ do
         let ( cid, desc ) = fmap (drop 1) $ (span (/=' ')) line
             commitId = CommitId (BC.pack cid)
             commitDescription = T.pack desc
+        commitTreeId <- newMVar Nothing
         return Commit {..}
 
 
@@ -94,9 +96,15 @@ checkoutAt Commit {..} dest = do
 readTreeId :: (MonadIO m, MonadFail m) => Commit -> m TreeId
 readTreeId Commit {..} = do
     let GitRepo {..} = commitRepo
-    liftIO $ withMVar gitLock $ \_ -> do
-        [ "tree", tid ] : _ <- map words . lines <$> readProcess "git" [ "--git-dir=" <> gitDir, "cat-file", "commit", showCommitId commitId ] ""
-        return $ TreeId $ BC.pack tid
+    liftIO $ do
+        modifyMVar commitTreeId $ \case
+            Just tid -> do
+                return ( Just tid, tid )
+            Nothing -> do
+                withMVar gitLock $ \_ -> do
+                    [ "tree", stid ] : _ <- map words . lines <$> readProcess "git" [ "--git-dir=" <> gitDir, "cat-file", "commit", showCommitId commitId ] ""
+                    let tid = TreeId $ BC.pack stid
+                    return ( Just tid, tid )
 
 
 readCommittedFile :: Commit -> FilePath -> IO (Maybe BL.ByteString)
