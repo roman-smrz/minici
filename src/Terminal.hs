@@ -4,9 +4,12 @@ module Terminal (
     initTerminalOutput,
     newLine,
     redrawLine,
+    terminalBlinkStatus,
 ) where
 
 import Control.Concurrent
+import Control.Concurrent.STM
+import Control.Monad
 
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -17,6 +20,7 @@ import System.IO
 
 data TerminalOutput = TerminalOutput
     { outNumLines :: MVar Int
+    , outBlinkVar :: TVar Bool
     }
 
 data TerminalLine = TerminalLine
@@ -27,6 +31,10 @@ data TerminalLine = TerminalLine
 initTerminalOutput :: IO TerminalOutput
 initTerminalOutput = do
     outNumLines <- newMVar 0
+    outBlinkVar <- newTVarIO False
+    void $ forkIO $ forever $ do
+        threadDelay 500000
+        atomically $ writeTVar outBlinkVar . not =<< readTVar outBlinkVar
     return TerminalOutput {..}
 
 newLine :: TerminalOutput -> Text -> IO TerminalLine
@@ -43,3 +51,6 @@ redrawLine TerminalLine {..} text = do
         let moveBy = total - lineNum
         T.putStr $ "\ESC[s\ESC[" <> T.pack (show moveBy) <> "F" <> text <> "\ESC[u"
         hFlush stdout
+
+terminalBlinkStatus :: TerminalOutput -> STM Bool
+terminalBlinkStatus TerminalOutput {..} = readTVar outBlinkVar

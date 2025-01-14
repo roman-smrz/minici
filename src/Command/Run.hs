@@ -113,19 +113,14 @@ showStatus blink = \case
 
 displayStatusLine :: TerminalOutput -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
 displayStatusLine tout prefix1 prefix2 statuses = do
-    blinkVar <- newTVarIO False
-    t <- forkIO $ forever $ do
-        threadDelay 500000
-        atomically $ writeTVar blinkVar . not =<< readTVar blinkVar
     line <- newLine tout ""
     void $ forkIO $ do
-        go line blinkVar "\0"
-        killThread t
+        go line "\0"
   where
-    go line blinkVar prev = do
+    go line prev = do
         (ss, cur) <- atomically $ do
             ss <- mapM (sequence . fmap readTVar) statuses
-            blink <- readTVar blinkVar
+            blink <- terminalBlinkStatus tout
             let cur = T.concat $ map (maybe "        " ((" " <>) . showStatus blink)) ss
             when (cur == prev) retry
             return (ss, cur)
@@ -137,4 +132,4 @@ displayStatusLine tout prefix1 prefix2 statuses = do
 
         if all (maybe True jobStatusFinished) ss
            then return ()
-           else go line blinkVar cur
+           else go line cur
