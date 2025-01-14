@@ -58,7 +58,7 @@ cmdRun (RunCommand changeset) = do
 
     tout <- getTerminalOutput
     liftIO $ do
-        mngr <- newJobManager optJobs
+        mngr <- newJobManager "./.minici" optJobs
         Just repo <- openRepo "."
         commits <- listCommits repo (base <> ".." <> tip)
         jobssets <- mapM loadJobSetForCommit commits
@@ -74,7 +74,7 @@ cmdRun (RunCommand changeset) = do
                 shortDesc = fitToLength 50 (commitDescription commit)
             case jobsetJobsEither jobset of
                 Right jobs -> do
-                    outs <- runJobs mngr "./.minici" commit jobs
+                    outs <- runJobs mngr commit jobs
                     let findJob name = snd <$> find ((name ==) . jobName . fst) outs
                     displayStatusLine tout shortCid (" " <> shortDesc) $ map findJob names
                     return $ map snd outs

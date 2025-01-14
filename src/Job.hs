@@ -90,6 +90,7 @@ textJobStatus = \case
 
 data JobManager = JobManager
     { jmSemaphore :: TVar Int
+    , jmDataDir :: FilePath
     , jmJobs :: TVar (Map JobId (TVar (JobStatus JobOutput)))
     , jmNextTaskId :: TVar TaskId
     , jmNextTask :: TVar (Maybe TaskId)
@@ -99,8 +100,8 @@ data JobManager = JobManager
 newtype TaskId = TaskId Int
     deriving (Eq, Ord)
 
-newJobManager :: Int -> IO JobManager
-newJobManager queueLen = do
+newJobManager :: FilePath -> Int -> IO JobManager
+newJobManager jmDataDir queueLen = do
     jmSemaphore <- newTVarIO queueLen
     jmJobs <- newTVarIO M.empty
     jmNextTaskId <- newTVarIO (TaskId 0)
@@ -146,8 +147,8 @@ runManagedJob JobManager {..} tid job = bracket acquire release (\_ -> job)
                             writeTVar jmNextTask (Just tid')
 
 
-runJobs :: JobManager -> FilePath -> Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
-runJobs mngr@JobManager {..} dir commit jobs = do
+runJobs :: JobManager -> Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
+runJobs mngr@JobManager {..} commit jobs = do
     treeId <- readTreeId commit
     results <- atomically $ do
         forM jobs $ \job -> do
@@ -177,7 +178,7 @@ runJobs mngr@JobManager {..} dir commit jobs = do
                     uses <- waitForUsedArtifacts job results outVar
                     runManagedJob mngr tid $ do
                         liftIO $ atomically $ writeTVar outVar JobRunning
-                        prepareJob dir commit job $ \checkoutPath jdir -> do
+                        prepareJob jmDataDir commit job $ \checkoutPath jdir -> do
                             updateStatusFile (jdir </> "status") outVar
                             JobDone <$> runJob job uses checkoutPath jdir
 
