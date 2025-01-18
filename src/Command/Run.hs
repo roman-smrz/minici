@@ -4,6 +4,7 @@ module Command.Run (
 
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
 
@@ -68,25 +69,32 @@ cmdRun (RunCommand changeset) = do
             T.replicate (8 + 50) " " :
             map ((" "<>) . fitToLength 7 . textJobName) names
 
-        statuses <- forM jobssets $ \jobset -> do
-            let commit = jobsetCommit jobset
-                shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
-                shortDesc = fitToLength 50 (commitDescription commit)
-            case jobsetJobsEither jobset of
-                Right jobs -> do
-                    outs <- runJobs mngr commit jobs
-                    let findJob name = snd <$> find ((name ==) . jobName . fst) outs
-                    displayStatusLine tout shortCid (" " <> shortDesc) $ map findJob names
-                    return $ map snd outs
-                Left err -> do
-                    void $ newLine tout $
-                        "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
-                    return []
+        threadCount <- newTVarIO (0 :: Int)
+        let changeCount f = atomically $ do
+                writeTVar threadCount . f =<< readTVar threadCount
+        let waitForJobs = atomically $ do
+                flip when retry . (0 <) =<< readTVar threadCount
 
-        -- wait for all jobs to complete
-        atomically $ forM_ (concat statuses) $ \tvar -> do
-            status <- readTVar tvar
-            when (not $ jobStatusFinished status) retry
+        handle @SomeException (\_ -> cancelAllJobs mngr) $ do
+            forM_ jobssets $ \jobset -> do
+                let commit = jobsetCommit jobset
+                    shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
+                    shortDesc = fitToLength 50 (commitDescription commit)
+                case jobsetJobsEither jobset of
+                    Right jobs -> do
+                        outs <- runJobs mngr commit jobs
+                        let findJob name = snd <$> find ((name ==) . jobName . fst) outs
+                        line <- newLine tout ""
+                        mask $ \restore -> do
+                            changeCount (+ 1)
+                            void $ forkIO $ (>> changeCount (subtract 1)) $
+                                try @SomeException $ restore $ do
+                                    displayStatusLine tout line shortCid (" " <> shortDesc) $ map findJob names
+                    Left err -> do
+                        void $ newLine tout $
+                            "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
+            waitForJobs
+        waitForJobs
 
 
 fitToLength :: Int -> Text -> Text
@@ -102,6 +110,7 @@ showStatus blink = \case
     JobRunning      -> "\ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m      "
     JobError _      -> "\ESC[91m!!\ESC[0m     "
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
+    JobCancelled    ->  "\ESC[0mC\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
 
     JobDuplicate _ s -> case s of
@@ -111,13 +120,11 @@ showStatus blink = \case
         JobRunning   -> "\ESC[96m" <> (if blink then "*" else "^") <> "\ESC[0m      "
         _            -> showStatus blink s
 
-displayStatusLine :: TerminalOutput -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
-displayStatusLine tout prefix1 prefix2 statuses = do
-    line <- newLine tout ""
-    void $ forkIO $ do
-        go line "\0"
+displayStatusLine :: TerminalOutput -> TerminalLine -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
+displayStatusLine tout line prefix1 prefix2 statuses = do
+    go "\0"
   where
-    go line prev = do
+    go prev = do
         (ss, cur) <- atomically $ do
             ss <- mapM (sequence . fmap readTVar) statuses
             blink <- terminalBlinkStatus tout
@@ -132,4 +139,4 @@ displayStatusLine tout prefix1 prefix2 statuses = do
 
         if all (maybe True jobStatusFinished) ss
            then return ()
-           else go line cur
+           else go cur
