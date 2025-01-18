@@ -79,7 +79,7 @@ cmdRun (RunCommand changeset) = do
             forM_ jobssets $ \jobset -> do
                 let commit = jobsetCommit jobset
                     shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
-                    shortDesc = fitToLength 50 (commitDescription commit)
+                shortDesc <- fitToLength 50 <$> getCommitTitle commit
                 case jobsetJobsEither jobset of
                     Right jobs -> do
                         outs <- runJobs mngr commit jobs

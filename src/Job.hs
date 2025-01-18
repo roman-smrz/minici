@@ -179,7 +179,7 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
 
 runJobs :: JobManager -> Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
 runJobs mngr@JobManager {..} commit jobs = do
-    treeId <- readTreeId commit
+    treeId <- getTreeId commit
     results <- atomically $ do
         forM jobs $ \job -> do
             let jid = JobId [ JobIdTree treeId, JobIdName (jobName job) ]
@@ -285,7 +285,7 @@ prepareJob dir commit job inner = do
 
     flip finally (liftIO $ removeDirectoryRecursive checkoutPath) $ do
         checkoutAt commit checkoutPath
-        tid <- readTreeId commit
+        tid <- getTreeId commit
 
         let jdir = dir </> "jobs" </> showTreeId tid </> stringJobName (jobName job)
         liftIO $ createDirectoryIfMissing True jdir
