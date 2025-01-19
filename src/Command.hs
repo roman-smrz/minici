@@ -69,6 +69,9 @@ instance CommandArgumentsType (Maybe Text) where
     argsFromStrings [str] = return $ Just (T.pack str)
     argsFromStrings _ = throwError "expected at most one argument"
 
+instance CommandArgumentsType [ Text ] where
+    argsFromStrings strs = return $ map T.pack strs
+
 
 newtype CommandExec a = CommandExec (ReaderT CommandInput IO a)
     deriving (Functor, Applicative, Monad, MonadIO)

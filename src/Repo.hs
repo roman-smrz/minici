@@ -1,7 +1,7 @@
 module Repo (
     Repo, Commit, commitId,
-    CommitId, showCommitId,
-    TreeId, showTreeId,
+    CommitId, textCommitId, showCommitId,
+    TreeId, textTreeId, showTreeId,
 
     openRepo,
     readBranch,
@@ -77,11 +77,17 @@ instance Eq Commit where
 newtype CommitId = CommitId ByteString
     deriving (Eq, Ord)
 
+textCommitId :: CommitId -> Text
+textCommitId (CommitId cid) = decodeUtf8 cid
+
 showCommitId :: CommitId -> String
 showCommitId (CommitId cid) = BC.unpack cid
 
 newtype TreeId = TreeId ByteString
     deriving (Eq, Ord)
+
+textTreeId :: TreeId -> Text
+textTreeId (TreeId tid) = decodeUtf8 tid
 
 showTreeId :: TreeId -> String
 showTreeId (TreeId tid) = BC.unpack tid
@@ -124,9 +130,9 @@ readBranch repo branch = readCommitFromFile repo ("refs/heads" </> T.unpack bran
 readTag :: MonadIO m => Repo -> Text -> m (Maybe Commit)
 readTag repo tag = readCommitFromFile repo ("refs/tags" </> T.unpack tag)
 
-listCommits :: MonadIO m => Repo -> String -> m [ Commit ]
+listCommits :: MonadIO m => Repo -> Text -> m [ Commit ]
 listCommits commitRepo range = liftIO $ do
-    out <- readProcess "git" [ "log", "--pretty=%H", "--first-parent", "--reverse", range ] ""
+    out <- readProcess "git" [ "log", "--pretty=%H", "--first-parent", "--reverse", T.unpack range ] ""
     forM (lines out) $ \cid -> do
         let commitId_ = CommitId (BC.pack cid)
         commitDetails <- newMVar Nothing
