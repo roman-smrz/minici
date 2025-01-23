@@ -8,6 +8,7 @@ module Command (
     CommandExec(..),
     CommandInput(..),
     getCommonOptions,
+    getConfigPath,
     getConfig,
     getTerminalOutput,
 ) where
@@ -20,6 +21,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 
 import System.Console.GetOpt
+import System.Exit
+import System.IO
 
 import Config
 import Terminal
@@ -78,15 +81,29 @@ newtype CommandExec a = CommandExec (ReaderT CommandInput IO a)
 
 data CommandInput = CommandInput
     { ciOptions :: CommonOptions
-    , ciConfig :: Config
+    , ciConfigPath :: Maybe FilePath
+    , ciConfig :: Either String Config
     , ciTerminalOutput :: TerminalOutput
     }
 
 getCommonOptions :: CommandExec CommonOptions
 getCommonOptions = CommandExec (asks ciOptions)
 
+getConfigPath :: CommandExec FilePath
+getConfigPath = CommandExec $ do
+    asks ciConfigPath >>= \case
+        Nothing -> liftIO $ do
+            hPutStrLn stderr "no config file found"
+            exitFailure
+        Just path -> return path
+
 getConfig :: CommandExec Config
-getConfig = CommandExec (asks ciConfig)
+getConfig = CommandExec $ do
+    asks ciConfig >>= \case
+        Left err -> liftIO $ do
+            hPutStrLn stderr err
+            exitFailure
+        Right config -> return config
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)

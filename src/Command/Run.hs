@@ -14,7 +14,9 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
+import System.Directory
 import System.Exit
+import System.FilePath
 import System.IO
 import System.Process
 
@@ -138,9 +140,17 @@ cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand RunOptions {..} args) = do
     CommonOptions {..} <- getCommonOptions
     tout <- getTerminalOutput
+    configPath <- getConfigPath
+    let baseDir = takeDirectory configPath
 
     liftIO $ do
-        Just repo <- openRepo "."
+        repo <- openRepo baseDir >>= \case
+            Just repo -> return repo
+            Nothing -> do
+                absPath <- makeAbsolute baseDir
+                T.hPutStrLn stderr $ "No repository found at `" <> T.pack absPath <> "'"
+                exitFailure
+
         ranges <- forM (args ++ roRanges) $ \changeset -> do
             ( base, tip ) <- case T.splitOn ".." changeset of
                 base : tip : _ -> return ( base, tip )
@@ -156,7 +166,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
         branches <- mapM (watchBranchSource repo) roNewCommitsOn
 
-        mngr <- newJobManager "./.minici" optJobs
+        mngr <- newJobManager (baseDir </> ".minici") optJobs
 
         source <- mergeSources $ concat [ ranges, branches ]
         headerLine <- newLine tout ""

@@ -138,13 +138,12 @@ runSomeCommand ciOptions (SC tproxy) args = do
         putStr $ usageInfo (T.unpack $ commandUsage tproxy) (fullCommandOptions tproxy)
         exitSuccess
 
-    Just configPath <- findConfig
-    BL.readFile configPath >>= return . parseConfig >>= \case
-        Left err -> do
-            putStr err
-            exitFailure
-        Right ciConfig -> do
-            let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
-            let CommandExec exec = commandExec cmd
-            ciTerminalOutput <- initTerminalOutput
-            flip runReaderT CommandInput {..} exec
+    ciConfigPath <- findConfig
+    ciConfig <- case ciConfigPath of
+        Just path -> parseConfig <$> BL.readFile path
+        Nothing -> return $ Left "no config file found"
+
+    let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
+    let CommandExec exec = commandExec cmd
+    ciTerminalOutput <- initTerminalOutput
+    flip runReaderT CommandInput {..} exec
