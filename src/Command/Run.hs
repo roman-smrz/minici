@@ -17,6 +17,7 @@ import System.Console.GetOpt
 import System.Directory
 import System.Exit
 import System.FilePath
+import System.FilePath.Glob
 import System.IO
 import System.Process
 
@@ -32,6 +33,7 @@ data RunCommand = RunCommand RunOptions [ Text ]
 data RunOptions = RunOptions
     { roRanges :: [ Text ]
     , roNewCommitsOn :: [ Text ]
+    , roNewTags :: [ Pattern ]
     }
 
 instance Command RunCommand where
@@ -55,6 +57,7 @@ instance Command RunCommand where
     defaultCommandOptions _ = RunOptions
         { roRanges = []
         , roNewCommitsOn = []
+        , roNewTags = []
         }
 
     commandOptions _ =
@@ -64,6 +67,9 @@ instance Command RunCommand where
         , Option [] [ "new-commits-on" ]
             (ReqArg (\val opts -> opts { roNewCommitsOn = T.pack val : roNewCommitsOn opts }) "<branch>")
             "run jobs for new commits on given branch"
+        , Option [] [ "new-tags" ]
+            (ReqArg (\val opts -> opts { roNewTags = compile val : roNewTags opts }) "<pattern>")
+            "run jobs for new annotated tags matching pattern"
         ]
 
     commandInit _ = RunCommand
@@ -136,6 +142,25 @@ watchBranchSource repo branch = do
             atomically $ putTMVar tmvar Nothing
     return $ JobSource tmvar
 
+watchTagSource :: Repo -> Pattern -> IO JobSource
+watchTagSource repo pat = do
+    chan <- watchTags repo
+
+    let go tmvar = do
+            tag <- atomically $ readTChan chan
+            if match pat $ T.unpack $ tagTag tag
+              then do
+                jobset <- loadJobSetForCommit $ tagObject tag
+                nextvar <- newEmptyTMVarIO
+                atomically $ putTMVar tmvar $ Just ( [ jobset ], JobSource nextvar )
+                go nextvar
+              else do
+                go tmvar
+
+    tmvar <- newEmptyTMVarIO
+    void $ forkIO $ go tmvar
+    return $ JobSource tmvar
+
 cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand RunOptions {..} args) = do
     CommonOptions {..} <- getCommonOptions
@@ -165,10 +190,11 @@ cmdRun (RunCommand RunOptions {..} args) = do
             rangeSource repo base tip
 
         branches <- mapM (watchBranchSource repo) roNewCommitsOn
+        tags <- mapM (watchTagSource repo) roNewTags
 
         mngr <- newJobManager (baseDir </> ".minici") optJobs
 
-        source <- mergeSources $ concat [ ranges, branches ]
+        source <- mergeSources $ concat [ ranges, branches, tags ]
         headerLine <- newLine tout ""
 
         threadCount <- newTVarIO (0 :: Int)

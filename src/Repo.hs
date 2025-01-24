@@ -2,6 +2,7 @@ module Repo (
     Repo, Commit, commitId,
     CommitId, textCommitId, showCommitId,
     TreeId, textTreeId, showTreeId,
+    Tag(..),
 
     openRepo,
     readBranch,
@@ -47,7 +48,7 @@ data Repo
     = GitRepo
         { gitDir :: FilePath
         , gitLock :: MVar ()
-        , gitInotify :: MVar (Maybe ( INotify, TChan Text ))
+        , gitInotify :: MVar (Maybe ( INotify, TChan (Tag Commit) ))
         , gitWatchedBranches :: MVar (Map Text [ TVar (Maybe Commit) ])
         }
 
@@ -64,6 +65,12 @@ data CommitDetails = CommitDetails
     { commitTreeId :: TreeId
     , commitTitle :: Text
     , commitMessage :: Text
+    }
+
+data Tag a = Tag
+    { tagTag :: Text
+    , tagObject :: a
+    , tagMessage :: Text
     }
 
 instance Eq Repo where
@@ -114,21 +121,39 @@ openRepo path = do
                 Just dir -> return (Just dir)
                 _        -> return Nothing
 
+mkCommit :: Repo -> CommitId -> IO Commit
+mkCommit commitRepo commitId_ = do
+    commitDetails <- newMVar Nothing
+    return $ Commit {..}
+
 readCommitFromFile :: MonadIO m => Repo -> FilePath -> m (Maybe Commit)
-readCommitFromFile commitRepo@GitRepo {..} path = liftIO $ do
+readCommitFromFile repo@GitRepo {..} path = liftIO $ do
     try @IOException (BC.readFile $ gitDir </> path) >>= \case
         Right content | (cid : _) <- BC.lines content -> do
-            let commitId_ = CommitId cid
-            commitDetails <- newMVar Nothing
-            return $ Just Commit {..}
+            Just <$> mkCommit repo (CommitId cid)
         _ -> do
             return Nothing
 
 readBranch :: MonadIO m => Repo -> Text -> m (Maybe Commit)
 readBranch repo branch = readCommitFromFile repo ("refs/heads" </> T.unpack branch)
 
-readTag :: MonadIO m => Repo -> Text -> m (Maybe Commit)
-readTag repo tag = readCommitFromFile repo ("refs/tags" </> T.unpack tag)
+readTag :: MonadIO m => Repo -> Text -> m (Maybe (Tag Commit))
+readTag repo@GitRepo {..} tag = do
+    ( infoPart, message ) <-
+        fmap (fmap (drop 1) . span (not . null) . lines) $
+        liftIO $ withMVar gitLock $ \_ -> do
+            readProcess "git" [ "--git-dir=" <> gitDir, "cat-file", "tag", T.unpack tag ] ""
+    let info = map (fmap (drop 1) . span (/= ' ')) infoPart
+
+    sequence $ do
+        otype <- lookup "type" info
+        guard (otype == "commit")
+        tagTag <- T.pack <$> lookup "tag" info
+        cid <- CommitId . BC.pack <$> lookup "object" info
+        let tagMessage = T.pack $ unlines $ dropWhile null message
+        Just $ do
+            tagObject <- liftIO $ mkCommit repo cid
+            return Tag {..}
 
 listCommits :: MonadIO m => Repo -> Text -> m [ Commit ]
 listCommits commitRepo range = liftIO $ do
@@ -204,7 +229,7 @@ readCommittedFile Commit {..} path = do
             | otherwise -> error "createProcess must return stdout handle"
 
 
-repoInotify :: Repo -> IO ( INotify, TChan Text )
+repoInotify :: Repo -> IO ( INotify, TChan (Tag Commit) )
 repoInotify repo@GitRepo {..} = modifyMVar gitInotify $ \case
     cur@(Just info) ->
         return ( cur, info )
@@ -222,8 +247,9 @@ repoInotify repo@GitRepo {..} = modifyMVar gitInotify $ \case
                     mapM_ (`writeTVar` commit) tvars
 
         _ <- addWatch inotify [ MoveIn ] (BC.pack tagsDir) $ \event -> do
-            let tag = decodeUtf8 $ filePath event
-            atomically $ writeTChan tagsChan tag
+            readTag repo (decodeUtf8 $ filePath event) >>= \case
+                Just tag -> atomically $ writeTChan tagsChan tag
+                Nothing  -> return ()
 
         return ( Just info, info )
   where
@@ -237,7 +263,7 @@ watchBranch repo@GitRepo {..} branch = do
     modifyMVar_ gitWatchedBranches $ return . M.insertWith (++) branch [ var ]
     return $ readTVar var
 
-watchTags :: Repo -> IO (TChan Text)
+watchTags :: Repo -> IO (TChan (Tag Commit))
 watchTags repo = do
     tagsChan <- snd <$> repoInotify repo
     atomically $ dupTChan tagsChan
