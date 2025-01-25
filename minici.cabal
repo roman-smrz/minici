@@ -30,7 +30,7 @@ flag ci
 
 source-repository head
     type:       git
-    location:   git://erebosprotocol.net/minici
+    location:   https://code.erebosprotocol.net/minici
 
 executable minici
     main-is:          Main.hs
