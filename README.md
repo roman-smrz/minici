@@ -11,7 +11,7 @@ Job definition
 --------------
 
 The top-level elements of the YAML file are `job <name>` defining steps to
-perform the job and potentially listing artefacts produced or required.
+perform the job and potentially listing artifacts produced or required.
 
 Example:
 
@@ -52,12 +52,27 @@ To run jobs for a git commit range:
 minici run <commit>..<commit>
 ```
 
+or:
+```
+minici run --range=<commit>..<commit>
+```
+
 To run jobs for commits that are in local `<branch>`, but not yet in its upstream:
 ```
 minici run <branch>
 ```
 
-For currently branch, the name can be omitted:
+For current branch, the name can be omitted:
 ```
 minici run
+```
+
+To watch changes on given `<branch>` and run jobs for each new commit:
+```
+minici run --new-commits-on=<branch>
+```
+
+To watch new tags and run jobs for each tag matching given pattern:
+```
+minici run --new-tags=<pattern>
 ```
