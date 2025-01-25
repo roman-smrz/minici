@@ -1,5 +1,14 @@
 # Revision history for MiniCI
 
+## 0.1.3 -- 2025-01-25
+
+* Run jobs based on configuration in associated commit
+* Configurable number of concurrently running jobs (using `-j` option)
+* Concurrently run jobs for multiple commits
+* Properly cancel and clean up jobs on user interrupt
+* Added `--new-commits-on` and `--new-tags` options for `run` command to dynamically generate jobs based on branch/tags changes
+* Support for GHC up to 9.12
+
 ## 0.1.2 -- 2024-07-30
 
 * Explicit run command
