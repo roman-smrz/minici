@@ -176,7 +176,10 @@ cmdRun (RunCommand RunOptions {..} args) = do
                 T.hPutStrLn stderr $ "No repository found at `" <> T.pack absPath <> "'"
                 exitFailure
 
-        ranges <- forM (args ++ roRanges) $ \changeset -> do
+        let args' | null args, null roRanges, null roNewCommitsOn, null roNewTags = [ "HEAD" ]
+                  | otherwise = args
+
+        ranges <- forM (args' ++ roRanges) $ \changeset -> do
             ( base, tip ) <- case T.splitOn ".." changeset of
                 base : tip : _ -> return ( base, tip )
                 [ param ] -> liftIO $ do
