@@ -61,6 +61,10 @@ To run jobs for commits that are in local `<branch>`, but not yet in its upstrea
 ```
 minici run <branch>
 ```
+or:
+```
+minici run --since-upstream=<branch>
+```
 
 For current branch, the name can be omitted:
 ```
@@ -76,3 +80,5 @@ To watch new tags and run jobs for each tag matching given pattern:
 ```
 minici run --new-tags=<pattern>
 ```
+
+The above options `--range`, `--since-upstream`, etc can be arbitrarily combined.

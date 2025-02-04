@@ -32,6 +32,7 @@ data RunCommand = RunCommand RunOptions [ Text ]
 
 data RunOptions = RunOptions
     { roRanges :: [ Text ]
+    , roSinceUpstream :: [ Text ]
     , roNewCommitsOn :: [ Text ]
     , roNewTags :: [ Pattern ]
     }
@@ -45,9 +46,9 @@ instance Command RunCommand where
     commandUsage _ = T.pack $ unlines $
         [ "Usage: minici run"
         , "         run jobs for commits on current branch not yet in upstream branch"
-        , "   or: minici run <ref>"
+        , "   or: minici run [--since-upstream=]<ref>"
         , "         run jobs for commits on <ref> not yet in its upstream ref"
-        , "   or: minici run <commit>..<commit>"
+        , "   or: minici run [--range=]<commit>..<commit>"
         , "         run jobs for commits in given range"
         , "   or: minici run <option>..."
         , "         run jobs based on given options (see below)"
@@ -56,6 +57,7 @@ instance Command RunCommand where
     type CommandOptions RunCommand = RunOptions
     defaultCommandOptions _ = RunOptions
         { roRanges = []
+        , roSinceUpstream = []
         , roNewCommitsOn = []
         , roNewTags = []
         }
@@ -64,6 +66,9 @@ instance Command RunCommand where
         [ Option [] [ "range" ]
             (ReqArg (\val opts -> opts { roRanges = T.pack val : roRanges opts }) "<range>")
             "run jobs for commits in given range"
+        , Option [] [ "since-upstream" ]
+            (ReqArg (\val opts -> opts { roSinceUpstream = T.pack val : roSinceUpstream opts }) "<ref>")
+            "run jobs for commits on <ref> not yet in its upstream ref"
         , Option [] [ "new-commits-on" ]
             (ReqArg (\val opts -> opts { roNewCommitsOn = T.pack val : roNewCommitsOn opts }) "<branch>")
             "run jobs for new commits on given branch"
@@ -176,20 +181,35 @@ cmdRun (RunCommand RunOptions {..} args) = do
                 T.hPutStrLn stderr $ "No repository found at `" <> T.pack absPath <> "'"
                 exitFailure
 
-        let args' | null args, null roRanges, null roNewCommitsOn, null roNewTags = [ "HEAD" ]
-                  | otherwise = args
+        rangeOptions <- concat <$> sequence
+            [ forM roRanges $ \range -> case T.splitOn ".." range of
+                [ base, tip ] -> return ( Just base, tip )
+                _ -> do
+                    T.hPutStrLn stderr $ "Invalid range: " <> range
+                    exitFailure
+            , forM roSinceUpstream $ return . ( Nothing, )
+            , forM args $ \arg -> case T.splitOn ".." arg of
+                [ base, tip ] -> return ( Just base, tip )
+                [ ref ] -> return ( Nothing, ref )
+                _ -> do
+                    T.hPutStrLn stderr $ "Invalid argument: " <> arg
+                    exitFailure
+            ]
 
-        ranges <- forM (args' ++ roRanges) $ \changeset -> do
-            ( base, tip ) <- case T.splitOn ".." changeset of
-                base : tip : _ -> return ( base, tip )
-                [ param ] -> liftIO $ do
-                    [ deref ] <- readProcessWithExitCode "git" [ "symbolic-ref", "--quiet", T.unpack param ] "" >>= \case
+        let rangeOptions'
+                | null rangeOptions, null roNewCommitsOn, null roNewTags = [ ( Nothing, "HEAD" ) ]
+                | otherwise = rangeOptions
+
+        ranges <- forM rangeOptions' $ \( mbBase, paramTip ) -> do
+            ( base, tip ) <- case mbBase of
+                Just base -> return ( base, paramTip )
+                Nothing -> liftIO $ do
+                    [ deref ] <- readProcessWithExitCode "git" [ "symbolic-ref", "--quiet", T.unpack paramTip ] "" >>= \case
                         ( ExitSuccess, out, _ ) -> return $ lines out
-                        ( _, _, _ ) -> return [ T.unpack param ]
+                        ( _, _, _ ) -> return [ T.unpack paramTip ]
                     [ _, tip ] : _ <- fmap words . lines <$> readProcess "git" [ "show-ref", deref ] ""
                     [ base ] <- lines <$> readProcess "git" [ "for-each-ref", "--format=%(upstream)", tip ] ""
                     return ( T.pack base, T.pack tip )
-                [] -> error "splitOn should not return empty list"
             rangeSource repo base tip
 
         branches <- mapM (watchBranchSource repo) roNewCommitsOn
