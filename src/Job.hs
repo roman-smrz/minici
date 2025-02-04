@@ -31,6 +31,7 @@ import System.Directory
 import System.Exit
 import System.FilePath
 import System.IO
+import System.IO.Temp
 import System.Posix.Signals
 import System.Process
 
@@ -280,10 +281,7 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
 
 prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
 prepareJob dir commit job inner = do
-    [checkoutPath] <- fmap lines $ liftIO $
-        readProcess "mktemp" ["-d", "-t", "minici.XXXXXXXXXX"] ""
-
-    flip finally (liftIO $ removeDirectoryRecursive checkoutPath) $ do
+    withSystemTempDirectory "minici" $ \checkoutPath -> do
         checkoutAt commit checkoutPath
         tid <- getTreeId commit
 
