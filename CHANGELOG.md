@@ -1,5 +1,11 @@
 # Revision history for MiniCI
 
+## 0.1.4 -- 2025-02-04
+
+* Fix invocation of `minici run` without arguments
+* Fix that empty temporary dir was not deleted in some cases
+* Add explicit `--since-upstream` option for the `run` command
+
 ## 0.1.3 -- 2025-01-25
 
 * Run jobs based on configuration in associated commit
