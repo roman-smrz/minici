@@ -19,7 +19,6 @@ import System.Exit
 import System.FilePath
 import System.FilePath.Glob
 import System.IO
-import System.Process
 
 import Command
 import Config
@@ -204,12 +203,8 @@ cmdRun (RunCommand RunOptions {..} args) = do
             ( base, tip ) <- case mbBase of
                 Just base -> return ( base, paramTip )
                 Nothing -> liftIO $ do
-                    [ deref ] <- readProcessWithExitCode "git" [ "symbolic-ref", "--quiet", T.unpack paramTip ] "" >>= \case
-                        ( ExitSuccess, out, _ ) -> return $ lines out
-                        ( _, _, _ ) -> return [ T.unpack paramTip ]
-                    [ _, tip ] : _ <- fmap words . lines <$> readProcess "git" [ "show-ref", deref ] ""
-                    [ base ] <- lines <$> readProcess "git" [ "for-each-ref", "--format=%(upstream)", tip ] ""
-                    return ( T.pack base, T.pack tip )
+                    Just base <- findUpstreamRef repo paramTip
+                    return ( base, paramTip )
             rangeSource repo base tip
 
         branches <- mapM (watchBranchSource repo) roNewCommitsOn

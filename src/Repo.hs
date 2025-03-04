@@ -8,6 +8,7 @@ module Repo (
     readBranch,
     readTag,
     listCommits,
+    findUpstreamRef,
 
     getTreeId,
     getCommitTitle,
@@ -100,6 +101,12 @@ showTreeId :: TreeId -> String
 showTreeId (TreeId tid) = BC.unpack tid
 
 
+runGitCommand :: MonadIO m => Repo -> [ String ] -> m String
+runGitCommand GitRepo {..} args = liftIO $ do
+    withMVar gitLock $ \_ -> do
+        readProcess "git" (("--git-dir=" <> gitDir) : args) ""
+
+
 openRepo :: FilePath -> IO (Maybe Repo)
 openRepo path = do
     findGitDir >>= \case
@@ -138,11 +145,10 @@ readBranch :: MonadIO m => Repo -> Text -> m (Maybe Commit)
 readBranch repo branch = readCommitFromFile repo ("refs/heads" </> T.unpack branch)
 
 readTag :: MonadIO m => Repo -> Text -> m (Maybe (Tag Commit))
-readTag repo@GitRepo {..} tag = do
+readTag repo tag = do
     ( infoPart, message ) <-
         fmap (fmap (drop 1) . span (not . null) . lines) $
-        liftIO $ withMVar gitLock $ \_ -> do
-            readProcess "git" [ "--git-dir=" <> gitDir, "cat-file", "tag", T.unpack tag ] ""
+        runGitCommand repo [ "cat-file", "tag", T.unpack tag ]
     let info = map (fmap (drop 1) . span (/= ' ')) infoPart
 
     sequence $ do
@@ -157,16 +163,28 @@ readTag repo@GitRepo {..} tag = do
 
 listCommits :: MonadIO m => Repo -> Text -> m [ Commit ]
 listCommits commitRepo range = liftIO $ do
-    out <- readProcess "git" [ "log", "--pretty=%H", "--first-parent", "--reverse", T.unpack range ] ""
+    out <- runGitCommand commitRepo [ "log", "--pretty=%H", "--first-parent", "--reverse", T.unpack range ]
     forM (lines out) $ \cid -> do
         let commitId_ = CommitId (BC.pack cid)
         commitDetails <- newMVar Nothing
         return Commit {..}
 
+findUpstreamRef :: MonadIO m => Repo -> Text -> m (Maybe Text)
+findUpstreamRef repo@GitRepo {..} ref = liftIO $ do
+    deref <- readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "symbolic-ref", "--quiet", T.unpack ref ] "" >>= \case
+        ( ExitSuccess, out, _ ) | [ deref ] <- lines out -> return deref
+        ( _, _, _ ) -> return $ T.unpack ref
+    runGitCommand repo [ "show-ref", deref ] >>= \case
+        out | [ _, fullRef ] : _ <- words <$> lines out
+            -> runGitCommand repo [ "for-each-ref", "--format=%(upstream)", fullRef ] >>= \case
+            out' | [ upstream ] <- lines out'
+                -> return $ Just $ T.pack upstream
+            _ -> return Nothing
+        _ -> return Nothing
+
 
 getCommitDetails :: (MonadIO m, MonadFail m) => Commit -> m CommitDetails
 getCommitDetails Commit {..} = do
-    let GitRepo {..} = commitRepo
     liftIO $ do
         modifyMVar commitDetails $ \case
             cur@(Just details) -> do
@@ -174,8 +192,7 @@ getCommitDetails Commit {..} = do
             Nothing -> do
                 ( infoPart, _ : title : message ) <-
                     fmap (span (not . null) . lines) $
-                    withMVar gitLock $ \_ -> do
-                        readProcess "git" [ "--git-dir=" <> gitDir, "cat-file", "commit", showCommitId commitId_ ] ""
+                    runGitCommand commitRepo [ "cat-file", "commit", showCommitId commitId_ ]
                 let info = map (fmap (drop 1) . span (/= ' ')) infoPart
 
                 Just commitTreeId <- return $ TreeId . BC.pack <$> lookup "tree" info
