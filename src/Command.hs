@@ -93,7 +93,7 @@ getConfigPath :: CommandExec FilePath
 getConfigPath = CommandExec $ do
     asks ciConfigPath >>= \case
         Nothing -> liftIO $ do
-            hPutStrLn stderr "no config file found"
+            hPutStrLn stderr "no job file found"
             exitFailure
         Just path -> return path
 

@@ -12,6 +12,7 @@ import Data.Text qualified as T
 import System.Console.GetOpt
 import System.Environment
 import System.Exit
+import System.FilePath
 import System.IO
 
 import Command
@@ -61,14 +62,19 @@ lookupCommand name = find p commands
 main :: IO ()
 main = do
     args <- getArgs
-    (opts, cmdargs) <- case getOpt RequireOrder options args of
+    let ( mbConfigPath, args' ) = case args of
+            (path : rest)
+                | any isPathSeparator path -> ( Just path, rest )
+            _ -> ( Nothing, args )
+
+    (opts, cmdargs) <- case getOpt RequireOrder options args' of
         (o, cmdargs, []) -> return (foldl (flip id) defaultCmdlineOptions o, cmdargs)
         (_, _, errs) -> do
             hPutStrLn stderr $ concat errs <> "Try `minici --help' for more information."
             exitFailure
 
     when (optShowHelp opts) $ do
-        let header = "Usage: minici [<option>...] <command> [<args>]\n\nCommon options are:"
+        let header = "Usage: minici [<job-file>] [<option>...] <command> [<args>]\n\nCommon options are:"
             commandDesc (SC proxy) = "  " <> padCommand (commandName proxy) <> commandDescription proxy
 
             padTo n str = str <> replicate (n - length str) ' '
@@ -87,8 +93,17 @@ main = do
         putStrLn versionLine
         exitSuccess
 
-    (ncmd, cargs) <- case cmdargs of
-        [] -> return (head commands, [])
+    ( configPath, cmdargs' ) <- case ( mbConfigPath, cmdargs ) of
+        ( Just path, _ )
+            -> return ( Just path, cmdargs )
+        ( _, path : rest )
+            | any isPathSeparator path
+            -> return ( Just path, rest )
+        _ -> ( , cmdargs ) <$> findConfig
+
+    ( ncmd, cargs ) <- case cmdargs' of
+        [] -> return ( head commands, [] )
+
         (cname : cargs)
             | Just nc <- lookupCommand cname -> return (nc, cargs)
             | otherwise -> do
@@ -98,7 +113,7 @@ main = do
                     ]
                 exitFailure
 
-    runSomeCommand (optCommon opts) ncmd cargs
+    runSomeCommand configPath (optCommon opts) ncmd cargs
 
 data FullCommandOptions c = FullCommandOptions
     { fcoSpecific :: CommandOptions c
@@ -120,8 +135,8 @@ fullCommandOptions proxy =
         "show this help and exit"
     ]
 
-runSomeCommand :: CommonOptions -> SomeCommandType -> [ String ] -> IO ()
-runSomeCommand ciOptions (SC tproxy) args = do
+runSomeCommand :: Maybe FilePath -> CommonOptions -> SomeCommandType -> [ String ] -> IO ()
+runSomeCommand ciConfigPath ciOptions (SC tproxy) args = do
     let exitWithErrors errs = do
             hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
             exitFailure
@@ -138,10 +153,9 @@ runSomeCommand ciOptions (SC tproxy) args = do
         putStr $ usageInfo (T.unpack $ commandUsage tproxy) (fullCommandOptions tproxy)
         exitSuccess
 
-    ciConfigPath <- findConfig
     ciConfig <- case ciConfigPath of
         Just path -> parseConfig <$> BL.readFile path
-        Nothing -> return $ Left "no config file found"
+        Nothing -> return $ Left "no job file found"
 
     let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
     let CommandExec exec = commandExec cmd
