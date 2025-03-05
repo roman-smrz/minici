@@ -48,6 +48,7 @@ executable minici
 
     other-modules:
         Command
+        Command.Checkout
         Command.Run
         Config
         Job

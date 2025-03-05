@@ -1,10 +1,14 @@
 module Repo (
-    Repo, Commit, commitId,
+    Repo,
+    DeclaredRepo(..),
+    RepoName(..), textRepoName, showRepoName,
+    Commit, commitId,
     CommitId, textCommitId, showCommitId,
     TreeId, textTreeId, showTreeId,
     Tag(..),
 
     openRepo,
+    readCommit,
     readBranch,
     readTag,
     listCommits,
@@ -52,6 +56,21 @@ data Repo
         , gitInotify :: MVar (Maybe ( INotify, TChan (Tag Commit) ))
         , gitWatchedBranches :: MVar (Map Text [ TVar (Maybe Commit) ])
         }
+
+data DeclaredRepo = DeclaredRepo
+    { repoName :: RepoName
+    , repoPath :: FilePath
+    }
+
+newtype RepoName = RepoName Text
+    deriving (Eq, Ord)
+
+textRepoName :: RepoName -> Text
+textRepoName (RepoName text) = text
+
+showRepoName :: RepoName -> String
+showRepoName = T.unpack . textRepoName
+
 
 data Commit = Commit
     { commitRepo :: Repo
@@ -132,6 +151,12 @@ mkCommit :: Repo -> CommitId -> IO Commit
 mkCommit commitRepo commitId_ = do
     commitDetails <- newMVar Nothing
     return $ Commit {..}
+
+readCommit :: MonadIO m => Repo -> Text -> m (Maybe Commit)
+readCommit repo@GitRepo {..} ref = liftIO $ do
+    readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", T.unpack ref <> "^{commit}" ] "" >>= \case
+        ( ExitSuccess, out, _ ) | cid : _ <- lines out -> Just <$> mkCommit repo (CommitId $ BC.pack cid)
+        _                                              -> return Nothing
 
 readCommitFromFile :: MonadIO m => Repo -> FilePath -> m (Maybe Commit)
 readCommitFromFile repo@GitRepo {..} path = liftIO $ do

@@ -10,6 +10,7 @@ module Command (
     getCommonOptions,
     getConfigPath,
     getConfig,
+    getRepo, getDefaultRepo,
     getTerminalOutput,
 ) where
 
@@ -25,15 +26,18 @@ import System.Exit
 import System.IO
 
 import Config
+import Repo
 import Terminal
 
 data CommonOptions = CommonOptions
     { optJobs :: Int
+    , optRepo :: [ DeclaredRepo ]
     }
 
 defaultCommonOptions :: CommonOptions
 defaultCommonOptions = CommonOptions
     { optJobs = 2
+    , optRepo = []
     }
 
 class CommandArgumentsType (CommandArguments c) => Command c where
@@ -79,10 +83,16 @@ instance CommandArgumentsType [ Text ] where
 newtype CommandExec a = CommandExec (ReaderT CommandInput IO a)
     deriving (Functor, Applicative, Monad, MonadIO)
 
+instance MonadFail CommandExec where
+    fail err = liftIO $ do
+        hPutStrLn stderr err
+        exitFailure
+
 data CommandInput = CommandInput
     { ciOptions :: CommonOptions
     , ciConfigPath :: Maybe FilePath
     , ciConfig :: Either String Config
+    , ciRepos :: [ ( Maybe RepoName, Repo ) ]
     , ciTerminalOutput :: TerminalOutput
     }
 
@@ -92,18 +102,26 @@ getCommonOptions = CommandExec (asks ciOptions)
 getConfigPath :: CommandExec FilePath
 getConfigPath = CommandExec $ do
     asks ciConfigPath >>= \case
-        Nothing -> liftIO $ do
-            hPutStrLn stderr "no job file found"
-            exitFailure
+        Nothing -> fail $ "no job file found"
         Just path -> return path
 
 getConfig :: CommandExec Config
 getConfig = CommandExec $ do
     asks ciConfig >>= \case
-        Left err -> liftIO $ do
-            hPutStrLn stderr err
-            exitFailure
+        Left err -> fail err
         Right config -> return config
+
+getRepo :: RepoName -> CommandExec Repo
+getRepo name = CommandExec $ do
+    asks (lookup (Just name) . ciRepos) >>= \case
+        Just repo -> return repo
+        Nothing -> fail $ "repo `" <> showRepoName name <> "' not declared"
+
+getDefaultRepo :: CommandExec Repo
+getDefaultRepo = CommandExec $ do
+    asks (lookup Nothing . ciRepos) >>= \case
+        Just repo -> return repo
+        Nothing -> fail $ "no defalut repo"
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)

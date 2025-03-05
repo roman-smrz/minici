@@ -16,8 +16,10 @@ import System.FilePath
 import System.IO
 
 import Command
+import Command.Checkout
 import Command.Run
 import Config
+import Repo
 import Terminal
 import Version
 
@@ -34,17 +36,28 @@ defaultCmdlineOptions = CmdlineOptions
     , optCommon = defaultCommonOptions
     }
 
-options :: [OptDescr (CmdlineOptions -> CmdlineOptions)]
+options :: [ OptDescr (CmdlineOptions -> Except String CmdlineOptions) ]
 options =
-    [ Option ['h'] ["help"]
-        (NoArg $ \opts -> opts { optShowHelp = True })
+    [ Option [ 'h' ] [ "help" ]
+        (NoArg $ \opts -> return opts { optShowHelp = True })
         "show this help and exit"
-    , Option ['V'] ["version"]
-        (NoArg $ \opts -> opts { optShowVersion = True })
+    , Option [ 'V' ] [ "version" ]
+        (NoArg $ \opts -> return opts { optShowVersion = True })
         "show version and exit"
-    , Option ['j'] ["jobs"]
-        (ReqArg (\num opts -> opts { optCommon = (optCommon opts) { optJobs = read num }}) "<num>")
+    , Option [ 'j' ] [ "jobs" ]
+        (ReqArg (\num opts -> return opts { optCommon = (optCommon opts) { optJobs = read num }}) "<num>")
         ("number of jobs to run simultaneously (default " <> show (optJobs defaultCommonOptions) <> ")")
+    , Option [] [ "repo" ]
+        (ReqArg (\value opts ->
+            case span (/= ':') value of
+                ( repo, ':' : path ) -> return opts
+                    { optCommon = (optCommon opts)
+                        { optRepo = DeclaredRepo (RepoName $ T.pack repo) path : optRepo (optCommon opts)
+                        }
+                    }
+                _ -> throwError $ "--repo: invalid value `" <> value <> "'"
+        ) "<repo>:<path>")
+        ("override or declare repo path")
     ]
 
 data SomeCommandType = forall c. Command c => SC (Proxy c)
@@ -52,6 +65,7 @@ data SomeCommandType = forall c. Command c => SC (Proxy c)
 commands :: [ SomeCommandType ]
 commands =
     [ SC $ Proxy @RunCommand
+    , SC $ Proxy @CheckoutCommand
     ]
 
 lookupCommand :: String -> Maybe SomeCommandType
@@ -68,7 +82,17 @@ main = do
             _ -> ( Nothing, args )
 
     (opts, cmdargs) <- case getOpt RequireOrder options args' of
-        (o, cmdargs, []) -> return (foldl (flip id) defaultCmdlineOptions o, cmdargs)
+        (os, cmdargs, []) -> do
+            let merge :: ([String], CmdlineOptions) -> (CmdlineOptions -> Except String CmdlineOptions) -> ([String], CmdlineOptions)
+                merge ( errs, o ) f = case runExcept $ f o of
+                    Left err -> ( err : errs, o )
+                    Right o' -> ( errs, o' )
+
+            case foldl merge ( [], defaultCmdlineOptions ) os of
+                ( [], opts ) -> return ( opts , cmdargs )
+                ( errs, _ ) -> do
+                    hPutStrLn stderr $ unlines (reverse errs) <> "Try `minici --help' for more information."
+                    exitFailure
         (_, _, errs) -> do
             hPutStrLn stderr $ concat errs <> "Try `minici --help' for more information."
             exitFailure
@@ -159,5 +183,19 @@ runSomeCommand ciConfigPath ciOptions (SC tproxy) args = do
 
     let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
     let CommandExec exec = commandExec cmd
+
+    namedRepos <- forM (optRepo ciOptions) $ \decl -> do
+        openRepo (repoPath decl) >>= \case
+            Just repo -> return ( Just (repoName decl), repo )
+            Nothing -> do
+                hPutStrLn stderr $ "Failed to open repo `" <> showRepoName (repoName decl) <> "' at " <> repoPath decl
+                exitFailure
+
+    defaultRepo <- maybe (return Nothing) (openRepo . takeDirectory) ciConfigPath
+    let ciRepos = concat
+            [ maybe [] (\r -> [ ( Nothing, r ) ]) defaultRepo
+            , namedRepos
+            ]
+
     ciTerminalOutput <- initTerminalOutput
     flip runReaderT CommandInput {..} exec
