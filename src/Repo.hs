@@ -42,10 +42,10 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding
 
-import System.Directory
 import System.Exit
 import System.FilePath
 import System.INotify
+import System.IO.Temp
 import System.Process
 
 
@@ -238,12 +238,20 @@ getCommitMessage = fmap commitMessage . getCommitDetails
 
 
 checkoutAt :: (MonadIO m, MonadFail m) => Commit -> FilePath -> m ()
-checkoutAt Commit {..} dest = do
+checkoutAt commit@Commit {..} dest = do
     let GitRepo {..} = commitRepo
-    liftIO $ withMVar gitLock $ \_ -> do
-        "" <- readProcess "git" [ "clone", "--quiet", "--shared", "--no-checkout", gitDir, dest ] ""
-        "" <- readProcess "git" [ "-C", dest, "restore", "--worktree", "--source=" <> showCommitId commitId_, "--", "." ] ""
-        removeDirectoryRecursive $ dest </> ".git"
+    tid <- getTreeId commit
+    liftIO $ withMVar gitLock $ \_ -> withSystemTempFile "minici-checkout.index" $ \index _ -> do
+        let gitProc args = (proc "git" args)
+                { env = Just
+                    [ ( "GIT_INDEX_FILE", index )
+                    , ( "GIT_DIR", gitDir )
+                    , ( "GIT_WORK_TREE", "." )
+                    ]
+                }
+        "" <- readCreateProcess (gitProc [ "read-tree", showTreeId tid ]) ""
+        "" <- readCreateProcess (gitProc [ "checkout-index", "--all", "--prefix=" <> addTrailingPathSeparator dest ]) ""
+        return ()
 
 
 readCommittedFile :: Commit -> FilePath -> IO (Maybe BL.ByteString)
