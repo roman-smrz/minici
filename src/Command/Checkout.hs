@@ -5,11 +5,17 @@ module Command.Checkout (
 import Data.Text (Text)
 import Data.Text qualified as T
 
+import System.Console.GetOpt
+
 import Command
 import Repo
 
 
-data CheckoutCommand = CheckoutCommand (Maybe RepoName) Text
+data CheckoutCommand = CheckoutCommand CheckoutOptions (Maybe RepoName) Text
+
+data CheckoutOptions = CheckoutOptions
+    { coPath :: Maybe FilePath
+    }
 
 instance Command CheckoutCommand where
     commandName _ = "checkout"
@@ -21,14 +27,25 @@ instance Command CheckoutCommand where
         [ "Usage: minici checkout [<repo> [<revision>]] [<option>...]"
         ]
 
-    commandInit _ _ = \case
-        (name : revision : _) -> CheckoutCommand (Just (RepoName name)) revision
-        [ name ] -> CheckoutCommand (Just (RepoName name)) "HEAD"
-        [] -> CheckoutCommand Nothing "HEAD"
+    type CommandOptions CheckoutCommand = CheckoutOptions
+    defaultCommandOptions _ = CheckoutOptions
+        { coPath = Nothing
+        }
+
+    commandOptions _ =
+        [ Option [] [ "path" ]
+            (ReqArg (\val opts -> opts { coPath = Just val }) "<path>")
+            "destination path"
+        ]
+
+    commandInit _ co = uncurry (CheckoutCommand co) . \case
+        (name : revision : _) -> ( Just (RepoName name), revision )
+        [ name ]              -> ( Just (RepoName name), "HEAD" )
+        []                    -> ( Nothing, "HEAD" )
     commandExec = cmdCheckout
 
 cmdCheckout :: CheckoutCommand -> CommandExec ()
-cmdCheckout (CheckoutCommand name revision) = do
+cmdCheckout (CheckoutCommand CheckoutOptions {..} name revision) = do
     repo <- maybe getDefaultRepo getRepo name
     tree <- maybe (fail $ T.unpack $ "revision `" <> revision <> "' not found") getCommitTree =<< readCommit repo revision
-    checkoutAt tree "."
+    checkoutAt tree $ maybe "." id coPath
