@@ -30,5 +30,5 @@ instance Command CheckoutCommand where
 cmdCheckout :: CheckoutCommand -> CommandExec ()
 cmdCheckout (CheckoutCommand name revision) = do
     repo <- maybe getDefaultRepo getRepo name
-    commit <- maybe (fail $ T.unpack $ "revision `" <> revision <> "' not found") return =<< readCommit repo revision
-    checkoutAt commit "."
+    tree <- maybe (fail $ T.unpack $ "revision `" <> revision <> "' not found") getCommitTree =<< readCommit repo revision
+    checkoutAt tree "."

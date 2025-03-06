@@ -180,10 +180,10 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
 
 runJobs :: JobManager -> Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
 runJobs mngr@JobManager {..} commit jobs = do
-    treeId <- getTreeId commit
+    tree <- getCommitTree commit
     results <- atomically $ do
         forM jobs $ \job -> do
-            let jid = JobId [ JobIdTree treeId, JobIdName (jobName job) ]
+            let jid = JobId [ JobIdTree (treeId tree), JobIdName (jobName job) ]
             tid <- reserveTaskId mngr
             managed <- readTVar jmJobs
             ( job, tid, ) <$> case M.lookup jid managed of
@@ -282,10 +282,10 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
 prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
 prepareJob dir commit job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
-        checkoutAt commit checkoutPath
-        tid <- getTreeId commit
+        tree <- getCommitTree commit
+        checkoutAt tree checkoutPath
 
-        let jdir = dir </> "jobs" </> showTreeId tid </> stringJobName (jobName job)
+        let jdir = dir </> "jobs" </> showTreeId (treeId tree) </> stringJobName (jobName job)
         liftIO $ createDirectoryIfMissing True jdir
 
         inner checkoutPath jdir

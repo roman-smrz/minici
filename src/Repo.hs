@@ -4,6 +4,7 @@ module Repo (
     RepoName(..), textRepoName, showRepoName,
     Commit, commitId,
     CommitId, textCommitId, showCommitId,
+    Tree, treeId, treeRepo,
     TreeId, textTreeId, showTreeId,
     Tag(..),
 
@@ -14,7 +15,7 @@ module Repo (
     listCommits,
     findUpstreamRef,
 
-    getTreeId,
+    getCommitTree,
     getCommitTitle,
     getCommitMessage,
 
@@ -82,9 +83,14 @@ commitId :: Commit -> CommitId
 commitId = commitId_
 
 data CommitDetails = CommitDetails
-    { commitTreeId :: TreeId
+    { commitTree :: Tree
     , commitTitle :: Text
     , commitMessage :: Text
+    }
+
+data Tree = Tree
+    { treeRepo :: Repo
+    , treeId :: TreeId
     }
 
 data Tag a = Tag
@@ -220,15 +226,17 @@ getCommitDetails Commit {..} = do
                     runGitCommand commitRepo [ "cat-file", "commit", showCommitId commitId_ ]
                 let info = map (fmap (drop 1) . span (/= ' ')) infoPart
 
-                Just commitTreeId <- return $ TreeId . BC.pack <$> lookup "tree" info
+                Just treeId <- return $ TreeId . BC.pack <$> lookup "tree" info
+                let treeRepo = commitRepo
+                let commitTree = Tree {..}
                 let commitTitle = T.pack title
                 let commitMessage = T.pack $ unlines $ dropWhile null message
 
                 let details = CommitDetails {..}
                 return ( Just details, details )
 
-getTreeId :: (MonadIO m, MonadFail m) => Commit -> m TreeId
-getTreeId = fmap commitTreeId . getCommitDetails
+getCommitTree :: (MonadIO m, MonadFail m) => Commit -> m Tree
+getCommitTree = fmap commitTree . getCommitDetails
 
 getCommitTitle :: (MonadIO m, MonadFail m) => Commit -> m Text
 getCommitTitle = fmap commitTitle . getCommitDetails
@@ -237,10 +245,9 @@ getCommitMessage :: (MonadIO m, MonadFail m) => Commit -> m Text
 getCommitMessage = fmap commitMessage . getCommitDetails
 
 
-checkoutAt :: (MonadIO m, MonadFail m) => Commit -> FilePath -> m ()
-checkoutAt commit@Commit {..} dest = do
-    let GitRepo {..} = commitRepo
-    tid <- getTreeId commit
+checkoutAt :: (MonadIO m, MonadFail m) => Tree -> FilePath -> m ()
+checkoutAt Tree {..} dest = do
+    let GitRepo {..} = treeRepo
     liftIO $ withMVar gitLock $ \_ -> withSystemTempFile "minici-checkout.index" $ \index _ -> do
         let gitProc args = (proc "git" args)
                 { env = Just
@@ -249,7 +256,7 @@ checkoutAt commit@Commit {..} dest = do
                     , ( "GIT_WORK_TREE", "." )
                     ]
                 }
-        "" <- readCreateProcess (gitProc [ "read-tree", showTreeId tid ]) ""
+        "" <- readCreateProcess (gitProc [ "read-tree", showTreeId treeId ]) ""
         "" <- readCreateProcess (gitProc [ "checkout-index", "--all", "--prefix=" <> addTrailingPathSeparator dest ]) ""
         return ()
 
