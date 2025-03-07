@@ -15,6 +15,7 @@ data CheckoutCommand = CheckoutCommand CheckoutOptions (Maybe RepoName) Text
 
 data CheckoutOptions = CheckoutOptions
     { coPath :: Maybe FilePath
+    , coSubtree :: Maybe FilePath
     }
 
 instance Command CheckoutCommand where
@@ -30,12 +31,16 @@ instance Command CheckoutCommand where
     type CommandOptions CheckoutCommand = CheckoutOptions
     defaultCommandOptions _ = CheckoutOptions
         { coPath = Nothing
+        , coSubtree = Nothing
         }
 
     commandOptions _ =
         [ Option [] [ "path" ]
             (ReqArg (\val opts -> opts { coPath = Just val }) "<path>")
             "destination path"
+        , Option [] [ "subtree" ]
+            (ReqArg (\val opts -> opts { coSubtree = Just val }) "<path>")
+            "repository subtree to checkout"
         ]
 
     commandInit _ co = uncurry (CheckoutCommand co) . \case
@@ -47,5 +52,8 @@ instance Command CheckoutCommand where
 cmdCheckout :: CheckoutCommand -> CommandExec ()
 cmdCheckout (CheckoutCommand CheckoutOptions {..} name revision) = do
     repo <- maybe getDefaultRepo getRepo name
-    tree <- maybe (fail $ T.unpack $ "revision `" <> revision <> "' not found") getCommitTree =<< readCommit repo revision
+    root <- maybe (fail $ T.unpack $ "revision `" <> revision <> "' not found") getCommitTree =<< readCommit repo revision
+    tree <- case coSubtree of
+        Nothing -> return root
+        Just subtree -> maybe (fail $ "subtree `" <> subtree <> "' not found in revision `" <> T.unpack revision <> "'") return =<< getSubtree subtree root
     checkoutAt tree $ maybe "." id coPath
