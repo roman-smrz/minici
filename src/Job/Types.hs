@@ -10,6 +10,7 @@ import Repo
 
 data Job = Job
     { jobName :: JobName
+    , jobCheckout :: [ ( Maybe RepoName, Maybe FilePath ) ]
     , jobRecipe :: [ CreateProcess ]
     , jobArtifacts :: [ ( ArtifactName, CreateProcess ) ]
     , jobUses :: [ ( JobName, ArtifactName ) ]

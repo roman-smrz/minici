@@ -32,17 +32,20 @@ configFileName = "minici.yaml"
 
 
 data Config = Config
-    { configJobs :: [Job]
+    { configJobs :: [ Job ]
+    , configRepos :: [ DeclaredRepo ]
     }
 
 instance Semigroup Config where
     a <> b = Config
         { configJobs = configJobs a ++ configJobs b
+        , configRepos = configRepos a ++ configRepos b
         }
 
 instance Monoid Config where
     mempty = Config
         { configJobs = []
+        , configRepos = []
         }
 
 instance FromYAML Config where
@@ -51,21 +54,43 @@ instance FromYAML Config where
                            (Mapping pos _ _, _) -> pos
                            (Sequence pos _ _, _) -> pos
                            (Anchor pos _ _, _) -> pos
-        jobs <- fmap catMaybes $ forM (sortBy (comparing $ posLine . getpos) $ M.assocs m) $ \case
-            (Scalar _ (SStr tag), node) | ["job", name] <- T.words tag -> do
-                Just <$> parseJob name node
-            _ -> return Nothing
-        return $ Config jobs
+        foldM go mempty $ sortBy (comparing $ posLine . getpos) $ M.assocs m
+      where
+        go config = \case
+            (Scalar _ (SStr tag), node)
+                | [ "job", name ] <- T.words tag -> do
+                    job <- parseJob name node
+                    return $ config { configJobs = configJobs config ++ [ job ] }
+                | [ "repo", name ] <- T.words tag -> do
+                    repo <- parseRepo name node
+                    return $ config { configRepos = configRepos config ++ [ repo ] }
+            _ -> return config
 
 parseJob :: Text -> Node Pos -> Parser Job
-parseJob name node = flip (withMap "Job") node $ \j -> Job
-    <$> pure (JobName name)
-    <*> choice
+parseJob name node = flip (withMap "Job") node $ \j -> do
+    let jobName = JobName name
+    jobCheckout <- choice
+        [ parseSingleCheckout =<< j .: "checkout"
+        , parseMultipleCheckouts =<< j .: "checkout"
+        , withNull "no checkout" (return []) =<< j .: "checkout"
+        , return [ ( Nothing, Nothing ) ]
+        ]
+    jobRecipe <- choice
         [ cabalJob =<< j .: "cabal"
         , shellJob =<< j .: "shell"
         ]
-    <*> parseArtifacts j
-    <*> (maybe (return []) parseUses =<< j .:? "uses")
+    jobArtifacts <- parseArtifacts j
+    jobUses <- maybe (return []) parseUses =<< j .:? "uses"
+    return Job {..}
+
+parseSingleCheckout :: Node Pos -> Parser [ ( Maybe RepoName, Maybe FilePath ) ]
+parseSingleCheckout = withMap "checkout definition" $ \m -> do
+    name <- m .:? "repo"
+    subtree <- m .:? "subtree"
+    return [ ( RepoName <$> name, T.unpack <$> subtree ) ]
+
+parseMultipleCheckouts :: Node Pos -> Parser [ ( Maybe RepoName, Maybe FilePath ) ]
+parseMultipleCheckouts = withSeq "checkout definitions" $ fmap concat . mapM parseSingleCheckout
 
 cabalJob :: Node Pos -> Parser [CreateProcess]
 cabalJob = withMap "cabal job" $ \m -> do
@@ -96,6 +121,13 @@ parseUses = withSeq "Uses list" $ mapM $
     withStr "Artifact reference" $ \text -> do
         [job, art] <- return $ T.split (== '.') text
         return (JobName job, ArtifactName art)
+
+
+parseRepo :: Text -> Node Pos -> Parser DeclaredRepo
+parseRepo name node = flip (withMap "Repo") node $ \r -> DeclaredRepo
+    <$> pure (RepoName name)
+    <*> (T.unpack <$> r .: "path")
+
 
 findConfig :: IO (Maybe FilePath)
 findConfig = go "."
