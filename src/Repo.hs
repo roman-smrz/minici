@@ -22,6 +22,7 @@ module Repo (
     getSubtree,
 
     checkoutAt,
+    createWipCommit,
     readCommittedFile,
 
     watchBranch,
@@ -30,8 +31,9 @@ module Repo (
 
 import Control.Concurrent
 import Control.Concurrent.STM
-import Control.Exception
+import Control.Exception (IOException)
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 
 import Data.ByteString (ByteString)
@@ -45,6 +47,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding
 
+import System.Environment
 import System.Exit
 import System.FilePath
 import System.INotify
@@ -155,20 +158,20 @@ openRepo path = do
                 Just dir -> return (Just dir)
                 _        -> return Nothing
 
-mkCommit :: Repo -> CommitId -> IO Commit
+mkCommit :: MonadIO m => Repo -> CommitId -> m Commit
 mkCommit commitRepo commitId_ = do
-    commitDetails <- newMVar Nothing
+    commitDetails <- liftIO $ newMVar Nothing
     return $ Commit {..}
 
-readCommit :: MonadIO m => Repo -> Text -> m (Maybe Commit)
+readCommit :: (MonadIO m, MonadFail m) => Repo -> Text -> m Commit
 readCommit repo@GitRepo {..} ref = liftIO $ do
     readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", T.unpack ref <> "^{commit}" ] "" >>= \case
-        ( ExitSuccess, out, _ ) | cid : _ <- lines out -> Just <$> mkCommit repo (CommitId $ BC.pack cid)
-        _                                              -> return Nothing
+        ( ExitSuccess, out, _ ) | cid : _ <- lines out -> mkCommit repo (CommitId $ BC.pack cid)
+        _                                              -> fail $ "revision `" <> T.unpack ref <> "' not found in `" <> gitDir <> "'"
 
 readCommitFromFile :: MonadIO m => Repo -> FilePath -> m (Maybe Commit)
 readCommitFromFile repo@GitRepo {..} path = liftIO $ do
-    try @IOException (BC.readFile $ gitDir </> path) >>= \case
+    try @IO @IOException (BC.readFile $ gitDir </> path) >>= \case
         Right content | (cid : _) <- BC.lines content -> do
             Just <$> mkCommit repo (CommitId cid)
         _ -> do
@@ -263,17 +266,63 @@ getSubtree path tree = liftIO $ do
 checkoutAt :: (MonadIO m, MonadFail m) => Tree -> FilePath -> m ()
 checkoutAt Tree {..} dest = do
     let GitRepo {..} = treeRepo
-    liftIO $ withMVar gitLock $ \_ -> withSystemTempFile "minici-checkout.index" $ \index _ -> do
-        let gitProc args = (proc "git" args)
-                { env = Just
-                    [ ( "GIT_INDEX_FILE", index )
-                    , ( "GIT_DIR", gitDir )
-                    , ( "GIT_WORK_TREE", "." )
-                    ]
-                }
-        "" <- readCreateProcess (gitProc [ "read-tree", showTreeId treeId ]) ""
-        "" <- readCreateProcess (gitProc [ "checkout-index", "--all", "--prefix=" <> addTrailingPathSeparator dest ]) ""
+    liftIO $ withSystemTempFile "minici-checkout.index" $ \index _ -> do
+        curenv <- getEnvironment
+        let readGitProcess args input =
+                withMVar gitLock $ \_ ->
+                    readCreateProcess (proc "git" args)
+                        { env = Just $ concat
+                            [ [ ( "GIT_INDEX_FILE", index ) ]
+                            , [ ( "GIT_DIR", gitDir ) ]
+                            , [ ( "GIT_WORK_TREE", "." ) ]
+                            , curenv
+                            ]
+                        } input
+        "" <- readGitProcess [ "read-tree", showTreeId treeId ] ""
+        "" <- readGitProcess [ "checkout-index", "--all", "--prefix=" <> addTrailingPathSeparator dest ] ""
         return ()
+
+createWipCommit :: (MonadIO m, MonadMask m, MonadFail m) => Repo -> m Commit
+createWipCommit repo@GitRepo {..} = do
+    withSystemTempFile "minici-wip.index" $ \index _ -> do
+        curenv <- liftIO getEnvironment
+        let readGitProcess mbWorkTree args input = liftIO $ do
+                withMVar gitLock $ \_ ->
+                    readCreateProcess (proc "git" args)
+                        { env = Just $ concat
+                            [ [ ( "GIT_INDEX_FILE", index ) ]
+                            , [ ( "GIT_DIR", gitDir ) ]
+                            , map (( "GIT_WORK_TREE", ) . T.unpack) $ maybeToList mbWorkTree
+                            , curenv
+                            ]
+                        } input
+            mkPair = fmap (T.dropWhile (== ' ')) . T.break (== ' ')
+        info <- map mkPair . takeWhile (not . T.null) . T.splitOn "\0". T.pack <$>
+            readGitProcess Nothing [ "worktree", "list", "--porcelain", "-z" ] ""
+        case ( lookup "worktree" info, lookup "HEAD" info ) of
+            ( Just worktree, Just headRev ) -> do
+                let readGitProcessW = readGitProcess (Just worktree)
+
+                headCommit <- mkCommit repo (CommitId $ encodeUtf8 headRev)
+                headTree <- getCommitTree headCommit
+
+                "" <- readGitProcessW [ "read-tree", "--empty" ] ""
+                status <- map mkPair . T.splitOn "\0" . T.pack <$>
+                    readGitProcessW [ "status", "--porcelain=v1", "-z", "--untracked-files=all" ] ""
+                "" <- readGitProcessW [ "update-index", "--add", "-z", "--stdin" ] $ T.unpack $ T.intercalate "\0" $ map snd status
+                [ tid ] <- lines <$> readGitProcessW [ "write-tree" ] ""
+
+                if TreeId (BC.pack tid) == treeId headTree
+                  then return headCommit
+                  else do
+                    headMsg <- getCommitTitle headCommit
+                    let wipMsg = case lookup "branch" info of
+                            Just branch -> "WIP on " <> branch <> ": " <> headMsg
+                            Nothing -> "WIP: " <> headMsg
+                    [ cid ] <- lines <$> readGitProcessW [ "commit-tree", "-m", T.unpack wipMsg, "-p", T.unpack headRev, tid ] ""
+                    mkCommit repo (CommitId $ BC.pack cid)
+
+            _ -> readCommit repo "HEAD"
 
 
 readCommittedFile :: Commit -> FilePath -> IO (Maybe BL.ByteString)

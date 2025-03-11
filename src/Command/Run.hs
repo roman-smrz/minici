@@ -129,7 +129,7 @@ argumentJobSource names = do
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
             Nothing -> tfail $ "job `" <> textJobName name <> "' not found"
-    Just jobsetCommit <- flip readCommit "HEAD" =<< getDefaultRepo
+    jobsetCommit <- createWipCommit =<< getDefaultRepo
     oneshotJobSource [ JobSet {..} ]
 
 rangeSource :: Repo -> Text -> Text -> IO JobSource

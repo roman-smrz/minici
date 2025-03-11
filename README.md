@@ -67,6 +67,12 @@ For current branch, the name can be omitted:
 minici run
 ```
 
+To run selected jobs with the current working tree, including uncommitted
+changes, list the job names on command line:
+```
+minici run <job name> [<job name> ...]
+```
+
 To watch changes on given `<branch>` and run jobs for each new commit:
 ```
 minici run --new-commits-on=<branch>

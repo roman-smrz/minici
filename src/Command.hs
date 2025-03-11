@@ -15,6 +15,7 @@ module Command (
     getTerminalOutput,
 ) where
 
+import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Reader
 
@@ -83,7 +84,7 @@ instance CommandArgumentsType [ Text ] where
 
 
 newtype CommandExec a = CommandExec (ReaderT CommandInput IO a)
-    deriving (Functor, Applicative, Monad, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadMask)
 
 instance MonadFail CommandExec where
     fail = tfail . T.pack

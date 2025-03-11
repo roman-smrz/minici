@@ -2,6 +2,7 @@ module Command.Checkout (
     CheckoutCommand,
 ) where
 
+import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -11,7 +12,7 @@ import Command
 import Repo
 
 
-data CheckoutCommand = CheckoutCommand CheckoutOptions (Maybe RepoName) Text
+data CheckoutCommand = CheckoutCommand CheckoutOptions (Maybe RepoName) (Maybe Text)
 
 data CheckoutOptions = CheckoutOptions
     { coPath :: Maybe FilePath
@@ -43,17 +44,19 @@ instance Command CheckoutCommand where
             "repository subtree to checkout"
         ]
 
-    commandInit _ co = uncurry (CheckoutCommand co) . \case
-        (name : revision : _) -> ( Just (RepoName name), revision )
-        [ name ]              -> ( Just (RepoName name), "HEAD" )
-        []                    -> ( Nothing, "HEAD" )
+    commandInit _ co args = CheckoutCommand co
+        (RepoName <$> listToMaybe args)
+        (listToMaybe $ drop 1 args)
     commandExec = cmdCheckout
 
 cmdCheckout :: CheckoutCommand -> CommandExec ()
-cmdCheckout (CheckoutCommand CheckoutOptions {..} name revision) = do
+cmdCheckout (CheckoutCommand CheckoutOptions {..} name mbrev) = do
     repo <- maybe getDefaultRepo getRepo name
-    root <- maybe (fail $ T.unpack $ "revision `" <> revision <> "' not found") getCommitTree =<< readCommit repo revision
+    root <- getCommitTree =<< case mbrev of
+        Just revision -> readCommit repo revision
+        Nothing -> createWipCommit repo
     tree <- case coSubtree of
         Nothing -> return root
-        Just subtree -> maybe (fail $ "subtree `" <> subtree <> "' not found in revision `" <> T.unpack revision <> "'") return =<< getSubtree subtree root
+        Just subtree -> maybe (fail $ "subtree `" <> subtree <> "' not found in " <> maybe "current worktree" (("revision `" <>) . (<> "'") . T.unpack) mbrev) return =<<
+            getSubtree subtree root
     checkoutAt tree $ maybe "." id coPath
