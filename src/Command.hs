@@ -126,7 +126,7 @@ getDefaultRepo :: CommandExec Repo
 getDefaultRepo = CommandExec $ do
     asks (lookup Nothing . ciRepos) >>= \case
         Just repo -> return repo
-        Nothing -> fail $ "no defalut repo"
+        Nothing -> fail $ "no default repo"
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)
