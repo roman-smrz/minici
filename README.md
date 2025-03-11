@@ -59,10 +59,6 @@ minici run --range=<commit>..<commit>
 
 To run jobs for commits that are in local `<branch>`, but not yet in its upstream:
 ```
-minici run <branch>
-```
-or:
-```
 minici run --since-upstream=<branch>
 ```
 

@@ -8,6 +8,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.Reader
 
+import Data.Either
 import Data.List
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -15,7 +16,6 @@ import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
 import System.Directory
-import System.Exit
 import System.FilePath
 import System.FilePath.Glob
 import System.IO
@@ -45,8 +45,8 @@ instance Command RunCommand where
     commandUsage _ = T.pack $ unlines $
         [ "Usage: minici run"
         , "         run jobs for commits on current branch not yet in upstream branch"
-        , "   or: minici run [--since-upstream=]<ref>"
-        , "         run jobs for commits on <ref> not yet in its upstream ref"
+        , "   or: minici run <job>..."
+        , "         run jobs specified on the command line"
         , "   or: minici run [--range=]<commit>..<commit>"
         , "         run jobs for commits in given range"
         , "   or: minici run <option>..."
@@ -82,6 +82,14 @@ instance Command RunCommand where
 
 data JobSource = JobSource (TMVar (Maybe ( [ JobSet ], JobSource )))
 
+emptyJobSource :: MonadIO m => m JobSource
+emptyJobSource = JobSource <$> liftIO (newTMVarIO Nothing)
+
+oneshotJobSource :: MonadIO m => [ JobSet ] -> m JobSource
+oneshotJobSource jobsets = do
+    next <- emptyJobSource
+    JobSource <$> liftIO (newTMVarIO (Just ( jobsets, next )))
+
 takeJobSource :: JobSource -> STM (Maybe ( [ JobSet ], JobSource ))
 takeJobSource (JobSource tmvar) = takeTMVar tmvar
 
@@ -113,12 +121,21 @@ mergeSources sources = do
             Just (Just ( jobsets, x' )) -> return ( jobsets, x' : xs )
 
 
+argumentJobSource :: [ JobName ] -> CommandExec JobSource
+argumentJobSource [] = emptyJobSource
+argumentJobSource names = do
+    config <- getConfig
+    jobsetJobsEither <- fmap Right $ forM names $ \name ->
+        case find ((name ==) . jobName) (configJobs config) of
+            Just job -> return job
+            Nothing -> tfail $ "job `" <> textJobName name <> "' not found"
+    Just jobsetCommit <- flip readCommit "HEAD" =<< getDefaultRepo
+    oneshotJobSource [ JobSet {..} ]
+
 rangeSource :: Repo -> Text -> Text -> IO JobSource
 rangeSource repo base tip = do
     commits <- listCommits repo (base <> ".." <> tip)
-    jobsets <- mapM loadJobSetForCommit commits
-    next <- JobSource <$> newTMVarIO Nothing
-    JobSource <$> newTMVarIO (Just ( jobsets, next ))
+    oneshotJobSource =<< mapM loadJobSetForCommit commits
 
 watchBranchSource :: Repo -> Text -> IO JobSource
 watchBranchSource repo branch = do
@@ -172,31 +189,34 @@ cmdRun (RunCommand RunOptions {..} args) = do
     configPath <- getConfigPath
     let baseDir = takeDirectory configPath
 
+    repo <- liftIO (openRepo baseDir) >>= \case
+        Just repo -> return repo
+        Nothing -> do
+            absPath <- liftIO $ makeAbsolute baseDir
+            fail $ "no repository found at `" <> absPath <> "'"
+
+    ( rangeOptions, jobOptions ) <- partitionEithers . concat <$> sequence
+        [ forM roRanges $ \range -> case T.splitOn ".." range of
+            [ base, tip ] -> return $ Left ( Just base, tip )
+            _ -> tfail $ "invalid range: " <> range
+        , forM roSinceUpstream $ return . Left . ( Nothing, )
+        , forM args $ \arg -> case T.splitOn ".." arg of
+            [ base, tip ] -> return $ Left ( Just base, tip )
+            [ _ ] -> do
+                config <- getConfig
+                if any ((JobName arg ==) . jobName) (configJobs config)
+                  then return $ Right $ JobName arg
+                  else do
+                    liftIO $ T.hPutStrLn stderr $ "standalone `" <> arg <> "' argument deprecated, use `--since-upstream=" <> arg <> "' instead"
+                    return $ Left ( Nothing, arg )
+            _ -> tfail $ "invalid argument: " <> arg
+        ]
+
+    argumentJobs <- argumentJobSource jobOptions
+
     liftIO $ do
-        repo <- openRepo baseDir >>= \case
-            Just repo -> return repo
-            Nothing -> do
-                absPath <- makeAbsolute baseDir
-                T.hPutStrLn stderr $ "No repository found at `" <> T.pack absPath <> "'"
-                exitFailure
-
-        rangeOptions <- concat <$> sequence
-            [ forM roRanges $ \range -> case T.splitOn ".." range of
-                [ base, tip ] -> return ( Just base, tip )
-                _ -> do
-                    T.hPutStrLn stderr $ "Invalid range: " <> range
-                    exitFailure
-            , forM roSinceUpstream $ return . ( Nothing, )
-            , forM args $ \arg -> case T.splitOn ".." arg of
-                [ base, tip ] -> return ( Just base, tip )
-                [ ref ] -> return ( Nothing, ref )
-                _ -> do
-                    T.hPutStrLn stderr $ "Invalid argument: " <> arg
-                    exitFailure
-            ]
-
         let rangeOptions'
-                | null rangeOptions, null roNewCommitsOn, null roNewTags = [ ( Nothing, "HEAD" ) ]
+                | null rangeOptions, null roNewCommitsOn, null roNewTags, null jobOptions = [ ( Nothing, "HEAD" ) ]
                 | otherwise = rangeOptions
 
         ranges <- forM rangeOptions' $ \( mbBase, paramTip ) -> do
@@ -212,7 +232,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
         mngr <- newJobManager (baseDir </> ".minici") optJobs
 
-        source <- mergeSources $ concat [ ranges, branches, tags ]
+        source <- mergeSources $ concat [ [ argumentJobs ], ranges, branches, tags ]
         headerLine <- newLine tout ""
 
         threadCount <- newTVarIO (0 :: Int)

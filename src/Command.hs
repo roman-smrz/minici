@@ -6,6 +6,7 @@ module Command (
     CommandArgumentsType(..),
 
     CommandExec(..),
+    tfail,
     CommandInput(..),
     getCommonOptions,
     getConfigPath,
@@ -20,6 +21,7 @@ import Control.Monad.Reader
 import Data.Kind
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
 import System.Exit
@@ -84,9 +86,12 @@ newtype CommandExec a = CommandExec (ReaderT CommandInput IO a)
     deriving (Functor, Applicative, Monad, MonadIO)
 
 instance MonadFail CommandExec where
-    fail err = liftIO $ do
-        hPutStrLn stderr err
-        exitFailure
+    fail = tfail . T.pack
+
+tfail :: Text -> CommandExec a
+tfail err = liftIO $ do
+    T.hPutStrLn stderr err
+    exitFailure
 
 data CommandInput = CommandInput
     { ciOptions :: CommonOptions
