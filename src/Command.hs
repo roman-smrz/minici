@@ -11,7 +11,7 @@ module Command (
     getCommonOptions,
     getConfigPath,
     getConfig,
-    getRepo, getDefaultRepo,
+    getRepo, getDefaultRepo, tryGetDefaultRepo,
     getTerminalOutput,
 ) where
 
@@ -106,28 +106,31 @@ getCommonOptions :: CommandExec CommonOptions
 getCommonOptions = CommandExec (asks ciOptions)
 
 getConfigPath :: CommandExec FilePath
-getConfigPath = CommandExec $ do
-    asks ciConfigPath >>= \case
-        Nothing -> fail $ "no job file found"
+getConfigPath = do
+    CommandExec (asks ciConfigPath) >>= \case
+        Nothing -> tfail $ "no job file found"
         Just path -> return path
 
 getConfig :: CommandExec Config
-getConfig = CommandExec $ do
-    asks ciConfig >>= \case
+getConfig = do
+    CommandExec (asks ciConfig) >>= \case
         Left err -> fail err
         Right config -> return config
 
 getRepo :: RepoName -> CommandExec Repo
-getRepo name = CommandExec $ do
-    asks (lookup (Just name) . ciRepos) >>= \case
+getRepo name = do
+    CommandExec (asks (lookup (Just name) . ciRepos)) >>= \case
         Just repo -> return repo
-        Nothing -> fail $ "repo `" <> showRepoName name <> "' not declared"
+        Nothing -> tfail $ "repo `" <> textRepoName name <> "' not declared"
 
 getDefaultRepo :: CommandExec Repo
-getDefaultRepo = CommandExec $ do
-    asks (lookup Nothing . ciRepos) >>= \case
+getDefaultRepo = do
+    tryGetDefaultRepo >>= \case
         Just repo -> return repo
-        Nothing -> fail $ "no default repo"
+        Nothing -> tfail $ "no default repo"
+
+tryGetDefaultRepo :: CommandExec (Maybe Repo)
+tryGetDefaultRepo = CommandExec $ asks (lookup Nothing . ciRepos)
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)

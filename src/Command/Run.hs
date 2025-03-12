@@ -15,7 +15,6 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
-import System.Directory
 import System.FilePath
 import System.FilePath.Glob
 import System.IO
@@ -129,16 +128,18 @@ argumentJobSource names = do
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
             Nothing -> tfail $ "job `" <> textJobName name <> "' not found"
-    jobsetCommit <- createWipCommit =<< getDefaultRepo
+    jobsetCommit <- sequence . fmap createWipCommit =<< tryGetDefaultRepo
     oneshotJobSource [ JobSet {..} ]
 
-rangeSource :: Repo -> Text -> Text -> IO JobSource
-rangeSource repo base tip = do
+rangeSource :: Text -> Text -> CommandExec JobSource
+rangeSource base tip = do
+    repo <- getDefaultRepo
     commits <- listCommits repo (base <> ".." <> tip)
     oneshotJobSource =<< mapM loadJobSetForCommit commits
 
-watchBranchSource :: Repo -> Text -> IO JobSource
-watchBranchSource repo branch = do
+watchBranchSource :: Text -> CommandExec JobSource
+watchBranchSource branch = do
+    repo <- getDefaultRepo
     getCurrentTip <- watchBranch repo branch
     let go prev tmvar = do
             cur <- atomically $ do
@@ -154,18 +155,19 @@ watchBranchSource repo branch = do
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
             go cur nextvar
 
-    tmvar <- newEmptyTMVarIO
-    atomically getCurrentTip >>= \case
-        Just commit -> 
-            void $ forkIO $ go commit tmvar
-        Nothing -> do
-            T.hPutStrLn stderr $ "Branch `" <> branch <> "' not found"
-            atomically $ putTMVar tmvar Nothing
-    return $ JobSource tmvar
+    liftIO $ do
+        tmvar <- newEmptyTMVarIO
+        atomically getCurrentTip >>= \case
+            Just commit ->
+                void $ forkIO $ go commit tmvar
+            Nothing -> do
+                T.hPutStrLn stderr $ "Branch `" <> branch <> "' not found"
+                atomically $ putTMVar tmvar Nothing
+        return $ JobSource tmvar
 
-watchTagSource :: Repo -> Pattern -> IO JobSource
-watchTagSource repo pat = do
-    chan <- watchTags repo
+watchTagSource :: Pattern -> CommandExec JobSource
+watchTagSource pat = do
+    chan <- watchTags =<< getDefaultRepo
 
     let go tmvar = do
             tag <- atomically $ readTChan chan
@@ -178,9 +180,10 @@ watchTagSource repo pat = do
               else do
                 go tmvar
 
-    tmvar <- newEmptyTMVarIO
-    void $ forkIO $ go tmvar
-    return $ JobSource tmvar
+    liftIO $ do
+        tmvar <- newEmptyTMVarIO
+        void $ forkIO $ go tmvar
+        return $ JobSource tmvar
 
 cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand RunOptions {..} args) = do
@@ -188,12 +191,6 @@ cmdRun (RunCommand RunOptions {..} args) = do
     tout <- getTerminalOutput
     configPath <- getConfigPath
     let baseDir = takeDirectory configPath
-
-    repo <- liftIO (openRepo baseDir) >>= \case
-        Just repo -> return repo
-        Nothing -> do
-            absPath <- liftIO $ makeAbsolute baseDir
-            fail $ "no repository found at `" <> absPath <> "'"
 
     ( rangeOptions, jobOptions ) <- partitionEithers . concat <$> sequence
         [ forM roRanges $ \range -> case T.splitOn ".." range of
@@ -214,22 +211,22 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
     argumentJobs <- argumentJobSource jobOptions
 
+    let rangeOptions'
+            | null rangeOptions, null roNewCommitsOn, null roNewTags, null jobOptions = [ ( Nothing, "HEAD" ) ]
+            | otherwise = rangeOptions
+
+    ranges <- forM rangeOptions' $ \( mbBase, paramTip ) -> do
+        ( base, tip ) <- case mbBase of
+            Just base -> return ( base, paramTip )
+            Nothing -> do
+                Just base <- flip findUpstreamRef paramTip =<< getDefaultRepo
+                return ( base, paramTip )
+        rangeSource base tip
+
+    branches <- mapM watchBranchSource roNewCommitsOn
+    tags <- mapM watchTagSource roNewTags
+
     liftIO $ do
-        let rangeOptions'
-                | null rangeOptions, null roNewCommitsOn, null roNewTags, null jobOptions = [ ( Nothing, "HEAD" ) ]
-                | otherwise = rangeOptions
-
-        ranges <- forM rangeOptions' $ \( mbBase, paramTip ) -> do
-            ( base, tip ) <- case mbBase of
-                Just base -> return ( base, paramTip )
-                Nothing -> liftIO $ do
-                    Just base <- findUpstreamRef repo paramTip
-                    return ( base, paramTip )
-            rangeSource repo base tip
-
-        branches <- mapM (watchBranchSource repo) roNewCommitsOn
-        tags <- mapM (watchTagSource repo) roNewTags
-
         mngr <- newJobManager (baseDir </> ".minici") optJobs
 
         source <- mergeSources $ concat [ [ argumentJobs ], ranges, branches, tags ]
@@ -253,8 +250,8 @@ cmdRun (RunCommand RunOptions {..} args) = do
                         map ((" " <>) . fitToLength 7 . textJobName) names
 
                 let commit = jobsetCommit jobset
-                    shortCid = T.pack $ take 7 $ showCommitId $ commitId commit
-                shortDesc <- fitToLength 50 <$> getCommitTitle commit
+                    shortCid = T.pack $ take 7 $ maybe (repeat ' ') (showCommitId . commitId) commit
+                shortDesc <- fitToLength 50 <$> maybe (return "") getCommitTitle commit
 
                 case jobsetJobsEither jobset of
                     Right jobs -> do

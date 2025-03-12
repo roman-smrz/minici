@@ -325,7 +325,7 @@ createWipCommit repo@GitRepo {..} = do
             _ -> readCommit repo "HEAD"
 
 
-readCommittedFile :: Commit -> FilePath -> IO (Maybe BL.ByteString)
+readCommittedFile :: MonadIO m => Commit -> FilePath -> m (Maybe BL.ByteString)
 readCommittedFile Commit {..} path = do
     let GitRepo {..} = commitRepo
     liftIO $ withMVar gitLock $ \_ -> do
@@ -377,14 +377,14 @@ repoInotify repo@GitRepo {..} = modifyMVar gitInotify $ \case
     headsDir = gitDir </> "refs/heads"
     tagsDir = gitDir </> "refs/tags"
 
-watchBranch :: Repo -> Text -> IO (STM (Maybe Commit))
-watchBranch repo@GitRepo {..} branch = do
+watchBranch :: MonadIO m => Repo -> Text -> m (STM (Maybe Commit))
+watchBranch repo@GitRepo {..} branch = liftIO $ do
     var <- newTVarIO =<< readBranch repo branch
     void $ repoInotify repo
     modifyMVar_ gitWatchedBranches $ return . M.insertWith (++) branch [ var ]
     return $ readTVar var
 
-watchTags :: Repo -> IO (TChan (Tag Commit))
-watchTags repo = do
+watchTags :: MonadIO m => Repo -> m (TChan (Tag Commit))
+watchTags repo = liftIO $ do
     tagsChan <- snd <$> repoInotify repo
     atomically $ dupTChan tagsChan

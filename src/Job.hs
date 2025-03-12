@@ -21,6 +21,7 @@ import Control.Monad.IO.Class
 import Data.List
 import Data.Map (Map)
 import Data.Map qualified as M
+import Data.Maybe
 import Data.Set (Set)
 import Data.Set qualified as S
 import Data.Text (Text)
@@ -178,12 +179,12 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
                             writeTVar jmRunningTasks . M.delete tid =<< readTVar jmRunningTasks
 
 
-runJobs :: JobManager -> Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
+runJobs :: JobManager -> Maybe Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
 runJobs mngr@JobManager {..} commit jobs = do
-    tree <- getCommitTree commit
+    tree <- sequence $ fmap getCommitTree commit
     results <- atomically $ do
         forM jobs $ \job -> do
-            let jid = JobId [ JobIdTree (treeId tree), JobIdName (jobName job) ]
+            let jid = JobId $ concat [ JobIdTree . treeId <$> maybeToList tree, [ JobIdName (jobName job) ] ]
             tid <- reserveTaskId mngr
             managed <- readTVar jmJobs
             ( job, tid, ) <$> case M.lookup jid managed of
@@ -279,13 +280,18 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
         T.writeFile path $ textJobStatus status <> "\n"
         when (not (jobStatusFinished status)) $ loop $ Just status
 
-prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
-prepareJob dir commit job inner = do
+prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Maybe Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
+prepareJob dir mbCommit job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
-        tree <- getCommitTree commit
-        checkoutAt tree checkoutPath
+        jdirCommit <- case mbCommit of
+            Just commit -> do
+                tree <- getCommitTree commit
+                checkoutAt tree checkoutPath
+                return $ showTreeId (treeId tree) </> stringJobName (jobName job)
+            Nothing -> do
+                return $ stringJobName (jobName job)
 
-        let jdir = dir </> "jobs" </> showTreeId (treeId tree) </> stringJobName (jobName job)
+        let jdir = dir </> "jobs" </> jdirCommit
         liftIO $ createDirectoryIfMissing True jdir
 
         inner checkoutPath jdir

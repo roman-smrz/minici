@@ -31,7 +31,7 @@ data ArtifactName = ArtifactName Text
 
 
 data JobSet = JobSet
-    { jobsetCommit :: Commit
+    { jobsetCommit :: Maybe Commit
     , jobsetJobsEither :: Either String [ Job ]
     }
 

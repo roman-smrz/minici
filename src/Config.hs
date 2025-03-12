@@ -9,6 +9,7 @@ module Config (
 
 import Control.Monad
 import Control.Monad.Combinators
+import Control.Monad.IO.Class
 
 import Data.ByteString.Lazy qualified as BS
 import Data.List
@@ -149,16 +150,16 @@ parseConfig contents = do
             Left $ prettyPosWithSource pos contents err
         Right conf -> Right conf
 
-loadConfigForCommit :: Commit -> IO (Either String Config)
+loadConfigForCommit :: MonadIO m => Commit -> m (Either String Config)
 loadConfigForCommit commit = do
     readCommittedFile commit configFileName >>= return . \case
         Just content -> either (\_ -> Left $ "failed to parse " <> configFileName) Right $ parseConfig content
         Nothing -> Left $ configFileName <> " not found"
 
-loadJobSetForCommit :: Commit -> IO JobSet
+loadJobSetForCommit :: MonadIO m => Commit -> m JobSet
 loadJobSetForCommit commit = toJobSet <$> loadConfigForCommit commit
   where
     toJobSet configEither = JobSet
-        { jobsetCommit = commit
+        { jobsetCommit = Just commit
         , jobsetJobsEither = fmap configJobs configEither
         }
