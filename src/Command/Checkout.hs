@@ -15,7 +15,7 @@ import Repo
 data CheckoutCommand = CheckoutCommand CheckoutOptions (Maybe RepoName) (Maybe Text)
 
 data CheckoutOptions = CheckoutOptions
-    { coPath :: Maybe FilePath
+    { coDestination :: Maybe FilePath
     , coSubtree :: Maybe FilePath
     }
 
@@ -31,13 +31,13 @@ instance Command CheckoutCommand where
 
     type CommandOptions CheckoutCommand = CheckoutOptions
     defaultCommandOptions _ = CheckoutOptions
-        { coPath = Nothing
+        { coDestination = Nothing
         , coSubtree = Nothing
         }
 
     commandOptions _ =
-        [ Option [] [ "path" ]
-            (ReqArg (\val opts -> opts { coPath = Just val }) "<path>")
+        [ Option [] [ "dest" ]
+            (ReqArg (\val opts -> opts { coDestination = Just val }) "<path>")
             "destination path"
         , Option [] [ "subtree" ]
             (ReqArg (\val opts -> opts { coSubtree = Just val }) "<path>")
@@ -59,4 +59,4 @@ cmdCheckout (CheckoutCommand CheckoutOptions {..} name mbrev) = do
         Nothing -> return root
         Just subtree -> maybe (fail $ "subtree `" <> subtree <> "' not found in " <> maybe "current worktree" (("revision `" <>) . (<> "'") . T.unpack) mbrev) return =<<
             getSubtree subtree root
-    checkoutAt tree $ maybe "." id coPath
+    checkoutAt tree $ maybe "." id coDestination

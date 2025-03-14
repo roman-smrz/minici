@@ -12,6 +12,7 @@ module Command (
     getConfigPath,
     getConfig,
     getRepo, getDefaultRepo, tryGetDefaultRepo,
+    getEvalInput,
     getTerminalOutput,
 ) where
 
@@ -29,6 +30,7 @@ import System.Exit
 import System.IO
 
 import Config
+import Eval
 import Repo
 import Terminal
 
@@ -98,7 +100,8 @@ data CommandInput = CommandInput
     { ciOptions :: CommonOptions
     , ciConfigPath :: Maybe FilePath
     , ciConfig :: Either String Config
-    , ciRepos :: [ ( Maybe RepoName, Repo ) ]
+    , ciContainingRepo :: Maybe Repo
+    , ciOtherRepos :: [ ( RepoName, Repo ) ]
     , ciTerminalOutput :: TerminalOutput
     }
 
@@ -119,7 +122,7 @@ getConfig = do
 
 getRepo :: RepoName -> CommandExec Repo
 getRepo name = do
-    CommandExec (asks (lookup (Just name) . ciRepos)) >>= \case
+    CommandExec (asks (lookup name . ciOtherRepos)) >>= \case
         Just repo -> return repo
         Nothing -> tfail $ "repo `" <> textRepoName name <> "' not declared"
 
@@ -130,7 +133,13 @@ getDefaultRepo = do
         Nothing -> tfail $ "no default repo"
 
 tryGetDefaultRepo :: CommandExec (Maybe Repo)
-tryGetDefaultRepo = CommandExec $ asks (lookup Nothing . ciRepos)
+tryGetDefaultRepo = CommandExec $ asks ciContainingRepo
+
+getEvalInput :: CommandExec EvalInput
+getEvalInput = CommandExec $ do
+    eiContainingRepo <- asks ciContainingRepo
+    eiOtherRepos <- asks ciOtherRepos
+    return EvalInput {..}
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)

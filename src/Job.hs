@@ -1,6 +1,6 @@
 module Job (
-    Job(..),
-    JobSet(..), jobsetJobs,
+    Job, DeclaredJob, Job'(..),
+    JobSet, DeclaredJobSet, JobSet'(..), jobsetJobs,
     JobOutput(..),
     JobName(..), stringJobName, textJobName,
     ArtifactName(..),

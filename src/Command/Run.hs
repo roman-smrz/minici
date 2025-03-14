@@ -6,7 +6,8 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Control.Monad.Reader
+import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import Data.Either
 import Data.List
@@ -21,6 +22,7 @@ import System.IO
 
 import Command
 import Config
+import Eval
 import Job
 import Repo
 import Terminal
@@ -124,22 +126,25 @@ argumentJobSource :: [ JobName ] -> CommandExec JobSource
 argumentJobSource [] = emptyJobSource
 argumentJobSource names = do
     config <- getConfig
+    einput <- getEvalInput
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
             Nothing -> tfail $ "job `" <> textJobName name <> "' not found"
     jobsetCommit <- sequence . fmap createWipCommit =<< tryGetDefaultRepo
-    oneshotJobSource [ JobSet {..} ]
+    oneshotJobSource [ evalJobSet einput JobSet {..} ]
 
 rangeSource :: Text -> Text -> CommandExec JobSource
 rangeSource base tip = do
     repo <- getDefaultRepo
+    einput <- getEvalInput
     commits <- listCommits repo (base <> ".." <> tip)
-    oneshotJobSource =<< mapM loadJobSetForCommit commits
+    oneshotJobSource . map (evalJobSet einput) =<< mapM loadJobSetForCommit commits
 
 watchBranchSource :: Text -> CommandExec JobSource
 watchBranchSource branch = do
     repo <- getDefaultRepo
+    einput <- getEvalInput
     getCurrentTip <- watchBranch repo branch
     let go prev tmvar = do
             cur <- atomically $ do
@@ -150,7 +155,7 @@ watchBranchSource branch = do
                     Nothing -> retry
 
             commits <- listCommits repo (textCommitId (commitId prev) <> ".." <> textCommitId (commitId cur))
-            jobsets <- mapM loadJobSetForCommit commits
+            jobsets <- map (evalJobSet einput) <$> mapM loadJobSetForCommit commits
             nextvar <- newEmptyTMVarIO
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
             go cur nextvar
@@ -168,12 +173,13 @@ watchBranchSource branch = do
 watchTagSource :: Pattern -> CommandExec JobSource
 watchTagSource pat = do
     chan <- watchTags =<< getDefaultRepo
+    einput <- getEvalInput
 
     let go tmvar = do
             tag <- atomically $ readTChan chan
             if match pat $ T.unpack $ tagTag tag
               then do
-                jobset <- loadJobSetForCommit $ tagObject tag
+                jobset <- evalJobSet einput <$> loadJobSetForCommit (tagObject tag)
                 nextvar <- newEmptyTMVarIO
                 atomically $ putTMVar tmvar $ Just ( [ jobset ], JobSource nextvar )
                 go nextvar

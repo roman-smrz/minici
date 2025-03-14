@@ -51,6 +51,7 @@ executable minici
         Command.Checkout
         Command.Run
         Config
+        Eval
         Job
         Job.Types
         Paths_minici

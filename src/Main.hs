@@ -184,18 +184,24 @@ runSomeCommand ciConfigPath ciOptions (SC tproxy) args = do
     let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
     let CommandExec exec = commandExec cmd
 
-    namedRepos <- forM (optRepo ciOptions) $ \decl -> do
-        openRepo (repoPath decl) >>= \case
-            Just repo -> return ( Just (repoName decl), repo )
-            Nothing -> do
-                hPutStrLn stderr $ "Failed to open repo `" <> showRepoName (repoName decl) <> "' at " <> repoPath decl
-                exitFailure
+    ciContainingRepo <- maybe (return Nothing) (openRepo . takeDirectory) ciConfigPath
 
-    defaultRepo <- maybe (return Nothing) (openRepo . takeDirectory) ciConfigPath
-    let ciRepos = concat
-            [ maybe [] (\r -> [ ( Nothing, r ) ]) defaultRepo
-            , namedRepos
-            ]
+    let openDeclaredRepo decl = do
+            openRepo (repoPath decl) >>= \case
+                Just repo -> return ( repoName decl, repo )
+                Nothing -> do
+                    hPutStrLn stderr $ "Failed to open repo `" <> showRepoName (repoName decl) <> "' at " <> repoPath decl
+                    exitFailure
+
+    cmdlineRepos <- forM (optRepo ciOptions) openDeclaredRepo
+    configRepos <- case ciConfig of
+        Right config -> forM (configRepos config) $ \decl -> do
+            case lookup (repoName decl) cmdlineRepos of
+                Just repo -> return ( repoName decl, repo )
+                Nothing -> openDeclaredRepo decl
+        Left _ -> return []
+
+    let ciOtherRepos = configRepos ++ cmdlineRepos
 
     ciTerminalOutput <- initTerminalOutput
     flip runReaderT CommandInput {..} exec

@@ -8,13 +8,20 @@ import System.Process
 import Repo
 
 
-data Job = Job
+data Declared
+data Evaluated
+
+data Job' d = Job
     { jobName :: JobName
-    , jobCheckout :: [ ( Maybe RepoName, Maybe FilePath ) ]
+    , jobContainingCheckout :: [ JobCheckout ]
+    , jobOtherCheckout :: [ ( JobRepo d, JobCheckout ) ]
     , jobRecipe :: [ CreateProcess ]
     , jobArtifacts :: [ ( ArtifactName, CreateProcess ) ]
     , jobUses :: [ ( JobName, ArtifactName ) ]
     }
+
+type Job = Job' Evaluated
+type DeclaredJob = Job' Declared
 
 data JobName = JobName Text
     deriving (Eq, Ord, Show)
@@ -26,14 +33,27 @@ textJobName :: JobName -> Text
 textJobName (JobName name) = name
 
 
+data JobRepo d where
+    DeclaredJobRepo :: RepoName -> JobRepo Declared
+    EvaluatedJobRepo :: Repo -> JobRepo Evaluated
+
+data JobCheckout = JobCheckout
+    { jcSubtree :: Maybe FilePath
+    , jcDestination :: Maybe FilePath
+    }
+
+
 data ArtifactName = ArtifactName Text
     deriving (Eq, Ord, Show)
 
 
-data JobSet = JobSet
+data JobSet' d = JobSet
     { jobsetCommit :: Maybe Commit
-    , jobsetJobsEither :: Either String [ Job ]
+    , jobsetJobsEither :: Either String [ Job' d ]
     }
+
+type JobSet = JobSet' Evaluated
+type DeclaredJobSet = JobSet' Declared
 
 jobsetJobs :: JobSet -> [ Job ]
 jobsetJobs = either (const []) id . jobsetJobsEither
