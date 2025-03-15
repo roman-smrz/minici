@@ -261,7 +261,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
                 case jobsetJobsEither jobset of
                     Right jobs -> do
-                        outs <- runJobs mngr commit jobs
+                        outs <- runJobs mngr tout commit jobs
                         let findJob name = snd <$> find ((name ==) . jobName . fst) outs
                         line <- newLine tout ""
                         mask $ \restore -> do
@@ -291,7 +291,7 @@ showStatus blink = \case
     JobWaiting uses -> "\ESC[94m~" <> fitToLength 6 (T.intercalate "," (map textJobName uses)) <> "\ESC[0m"
     JobSkipped      ->  "\ESC[0m-\ESC[0m      "
     JobRunning      -> "\ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m      "
-    JobError _      -> "\ESC[91m!!\ESC[0m     "
+    JobError fnote  -> "\ESC[91m" <> fitToLength 7 ("!! [" <> T.pack (show (footnoteNumber fnote)) <> "]") <> "\ESC[0m"
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
     JobCancelled    ->  "\ESC[0mC\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
