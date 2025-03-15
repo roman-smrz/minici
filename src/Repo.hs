@@ -250,17 +250,17 @@ getCommitMessage :: (MonadIO m, MonadFail m) => Commit -> m Text
 getCommitMessage = fmap commitMessage . getCommitDetails
 
 
-getSubtree :: MonadIO m => FilePath -> Tree -> m (Maybe Tree)
-getSubtree path tree = liftIO $ do
+getSubtree :: (MonadIO m, MonadFail m) => Maybe Commit -> FilePath -> Tree -> m Tree
+getSubtree mbCommit path tree = liftIO $ do
     let GitRepo {..} = treeRepo tree
     readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", showTreeId (treeId tree) <> ":" <> path ] "" >>= \case
         ( ExitSuccess, out, _ ) | tid : _ <- lines out -> do
-            return $ Just Tree
+            return Tree
                 { treeRepo = treeRepo tree
                 , treeId = TreeId (BC.pack tid)
                 }
         _ -> do
-            return Nothing
+            fail $ "subtree `" <> path <> "' not found" <> maybe "" (("in revision `" <>) . (<> "'") . showCommitId . commitId) mbCommit
 
 
 checkoutAt :: (MonadIO m, MonadFail m) => Tree -> FilePath -> m ()

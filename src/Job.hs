@@ -286,12 +286,23 @@ prepareJob dir mbCommit job inner = do
         jdirCommit <- case mbCommit of
             Just commit -> do
                 tree <- getCommitTree commit
-                checkoutAt tree checkoutPath
+                forM_ (jobContainingCheckout job) $ \(JobCheckout mbsub dest) -> do
+                    subtree <- maybe return (getSubtree mbCommit) mbsub $ tree
+                    checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
                 return $ showTreeId (treeId tree) </> stringJobName (jobName job)
             Nothing -> do
+                when (not $ null $ jobContainingCheckout job) $ do
+                    fail $ "no containing repository, can't do checkout"
                 return $ stringJobName (jobName job)
 
-        let jdir = dir </> "jobs" </> jdirCommit
+        jdirOther <- forM (jobOtherCheckout job) $ \( EvaluatedJobRepo repo, revision, JobCheckout mbsub dest ) -> do
+            commit <- readCommit repo $ fromMaybe "HEAD" revision
+            tree <- getCommitTree commit
+            subtree <- maybe return (getSubtree (Just commit)) mbsub $ tree
+            checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
+            return $ showTreeId (treeId tree)
+
+        let jdir = dir </> "jobs" </> jdirCommit </> joinPath jdirOther
         liftIO $ createDirectoryIfMissing True jdir
 
         inner checkoutPath jdir

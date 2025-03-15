@@ -28,10 +28,10 @@ textEvalError (OtherEvalError text) = text
 
 evalJob :: EvalInput -> DeclaredJob -> Except EvalError Job
 evalJob EvalInput {..} decl = do
-    otherCheckout <- forM (jobOtherCheckout decl) $ \( DeclaredJobRepo name, checkout ) -> do
+    otherCheckout <- forM (jobOtherCheckout decl) $ \( DeclaredJobRepo name, revision, checkout ) -> do
         repo <- maybe (throwError $ OtherEvalError $ "repo `" <> textRepoName name <> "' not defined") return $
             lookup name eiOtherRepos
-        return ( EvaluatedJobRepo repo, checkout )
+        return ( EvaluatedJobRepo repo, revision, checkout )
     return Job
         { jobName = jobName decl
         , jobContainingCheckout = jobContainingCheckout decl

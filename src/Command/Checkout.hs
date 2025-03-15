@@ -52,11 +52,7 @@ instance Command CheckoutCommand where
 cmdCheckout :: CheckoutCommand -> CommandExec ()
 cmdCheckout (CheckoutCommand CheckoutOptions {..} name mbrev) = do
     repo <- maybe getDefaultRepo getRepo name
-    root <- getCommitTree =<< case mbrev of
-        Just revision -> readCommit repo revision
-        Nothing -> createWipCommit repo
-    tree <- case coSubtree of
-        Nothing -> return root
-        Just subtree -> maybe (fail $ "subtree `" <> subtree <> "' not found in " <> maybe "current worktree" (("revision `" <>) . (<> "'") . T.unpack) mbrev) return =<<
-            getSubtree subtree root
+    mbCommit <- sequence $ fmap (readCommit repo) mbrev
+    root <- getCommitTree =<< maybe (createWipCommit repo) return mbCommit
+    tree <- maybe return (getSubtree mbCommit) coSubtree $ root
     checkoutAt tree $ maybe "." id coDestination

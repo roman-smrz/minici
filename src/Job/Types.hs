@@ -14,7 +14,7 @@ data Evaluated
 data Job' d = Job
     { jobName :: JobName
     , jobContainingCheckout :: [ JobCheckout ]
-    , jobOtherCheckout :: [ ( JobRepo d, JobCheckout ) ]
+    , jobOtherCheckout :: [ ( JobRepo d, Maybe Text, JobCheckout ) ]
     , jobRecipe :: [ CreateProcess ]
     , jobArtifacts :: [ ( ArtifactName, CreateProcess ) ]
     , jobUses :: [ ( JobName, ArtifactName ) ]
