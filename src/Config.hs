@@ -23,6 +23,7 @@ import Data.YAML
 
 import System.Directory
 import System.FilePath
+import System.FilePath.Glob
 import System.Process
 
 import Job.Types
@@ -112,7 +113,7 @@ shellJob :: Node Pos -> Parser [CreateProcess]
 shellJob = withSeq "shell commands" $ \xs -> do
     fmap (map shell) $ forM xs $ withStr "shell command" $ return . T.unpack
 
-parseArtifacts :: Mapping Pos -> Parser [(ArtifactName, CreateProcess)]
+parseArtifacts :: Mapping Pos -> Parser [ ( ArtifactName, Pattern ) ]
 parseArtifacts m = do
     fmap catMaybes $ forM (M.assocs m) $ \case
         (Scalar _ (SStr tag), node) | ["artifact", name] <- T.words tag -> do
@@ -120,8 +121,8 @@ parseArtifacts m = do
         _ -> return Nothing
   where
     parseArtifact name = withMap "Artifact" $ \am -> do
-        path <- am .: "path"
-        return (ArtifactName name, proc "echo" [ T.unpack path ])
+        pat <- compile . T.unpack <$> am .: "path"
+        return ( ArtifactName name, pat )
 
 parseUses :: Node Pos -> Parser [(JobName, ArtifactName)]
 parseUses = withSeq "Uses list" $ mapM $

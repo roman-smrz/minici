@@ -3,6 +3,7 @@ module Job.Types where
 import Data.Text (Text)
 import Data.Text qualified as T
 
+import System.FilePath.Glob
 import System.Process
 
 import Repo
@@ -16,7 +17,7 @@ data Job' d = Job
     , jobContainingCheckout :: [ JobCheckout ]
     , jobOtherCheckout :: [ ( JobRepo d, Maybe Text, JobCheckout ) ]
     , jobRecipe :: [ CreateProcess ]
-    , jobArtifacts :: [ ( ArtifactName, CreateProcess ) ]
+    , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
     , jobUses :: [ ( JobName, ArtifactName ) ]
     }
 

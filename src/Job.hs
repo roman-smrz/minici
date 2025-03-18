@@ -31,6 +31,7 @@ import Data.Text.IO qualified as T
 import System.Directory
 import System.Exit
 import System.FilePath
+import System.FilePath.Glob
 import System.IO
 import System.IO.Temp
 import System.Posix.Signals
@@ -330,19 +331,26 @@ runJob job uses checkoutPath jdir = do
                     | fromIntegral n == -sigINT -> throwError JobCancelled
                     | otherwise -> throwError JobFailed
 
-    let adir = jdir </> "artifacts"
-    artifacts <- forM (jobArtifacts job) $ \(name@(ArtifactName tname), pathCmd) -> liftIO $ do
-        [path] <- lines <$> readCreateProcess pathCmd { cwd = Just checkoutPath } ""
-        let target = adir </> T.unpack tname
-        createDirectoryIfMissing True adir
-        copyFile (checkoutPath </> path) target
-        return $ ArtifactOutput
-            { aoutName = name
-            , aoutWorkPath = path
-            , aoutStorePath = target
-            }
+        let adir = jdir </> "artifacts"
+        artifacts <- forM (jobArtifacts job) $ \( name@(ArtifactName tname), pathPattern ) -> do
+            path <- liftIO (globDir1 pathPattern checkoutPath) >>= \case
+                [ path ] -> return path
+                found -> do
+                    liftIO $ hPutStrLn logs $
+                        (if null found then "no file" else "multiple files") <> " found matching pattern `" <>
+                        decompile pathPattern <> "' for artifact `" <> T.unpack tname <> "'"
+                    throwError JobFailed
+            let target = adir </> T.unpack tname </> takeFileName path
+            liftIO $ do
+                createDirectoryIfMissing True $ takeDirectory target
+                copyFile (checkoutPath </> path) target
+            return $ ArtifactOutput
+                { aoutName = name
+                , aoutWorkPath = path
+                , aoutStorePath = target
+                }
 
-    return JobOutput
-        { outName = jobName job
-        , outArtifacts = artifacts
-        }
+        return JobOutput
+            { outName = jobName job
+            , outArtifacts = artifacts
+            }
