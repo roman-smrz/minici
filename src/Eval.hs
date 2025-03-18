@@ -6,6 +6,7 @@ module Eval (
     evalJobSet,
 ) where
 
+import Control.Monad
 import Control.Monad.Except
 
 import Data.Bifunctor

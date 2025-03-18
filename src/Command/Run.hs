@@ -6,7 +6,6 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad
-import Control.Monad.Except
 import Control.Monad.IO.Class
 
 import Data.Either
