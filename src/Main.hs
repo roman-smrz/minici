@@ -10,6 +10,7 @@ import Data.Proxy
 import Data.Text qualified as T
 
 import System.Console.GetOpt
+import System.Directory
 import System.Environment
 import System.Exit
 import System.FilePath
@@ -186,20 +187,23 @@ runSomeCommand ciConfigPath ciOptions (SC tproxy) args = do
 
     ciContainingRepo <- maybe (return Nothing) (openRepo . takeDirectory) ciConfigPath
 
-    let openDeclaredRepo decl = do
-            openRepo (repoPath decl) >>= \case
+    let openDeclaredRepo dir decl = do
+            let path = dir </> repoPath decl
+            openRepo path >>= \case
                 Just repo -> return ( repoName decl, repo )
                 Nothing -> do
-                    hPutStrLn stderr $ "Failed to open repo `" <> showRepoName (repoName decl) <> "' at " <> repoPath decl
+                    absPath <- makeAbsolute path
+                    hPutStrLn stderr $ "Failed to open repo `" <> showRepoName (repoName decl) <> "' at " <> repoPath decl <> " (" <> absPath <> ")"
                     exitFailure
 
-    cmdlineRepos <- forM (optRepo ciOptions) openDeclaredRepo
-    configRepos <- case ciConfig of
-        Right config -> forM (configRepos config) $ \decl -> do
-            case lookup (repoName decl) cmdlineRepos of
-                Just repo -> return ( repoName decl, repo )
-                Nothing -> openDeclaredRepo decl
-        Left _ -> return []
+    cmdlineRepos <- forM (optRepo ciOptions) (openDeclaredRepo "")
+    configRepos <- case ( ciConfigPath, ciConfig ) of
+        ( Just path, Right config ) ->
+            forM (configRepos config) $ \decl -> do
+                case lookup (repoName decl) cmdlineRepos of
+                    Just repo -> return ( repoName decl, repo )
+                    Nothing -> openDeclaredRepo (takeDirectory path) decl
+        _ -> return []
 
     let ciOtherRepos = configRepos ++ cmdlineRepos
 
