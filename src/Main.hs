@@ -6,6 +6,7 @@ import Control.Monad.Reader
 
 import Data.ByteString.Lazy qualified as BL
 import Data.List
+import Data.List.NonEmpty qualified as NE
 import Data.Proxy
 import Data.Text qualified as T
 
@@ -63,10 +64,10 @@ options =
 
 data SomeCommandType = forall c. Command c => SC (Proxy c)
 
-commands :: [ SomeCommandType ]
+commands :: NE.NonEmpty SomeCommandType
 commands =
-    [ SC $ Proxy @RunCommand
-    , SC $ Proxy @CheckoutCommand
+    ( SC $ Proxy @RunCommand) NE.:|
+    [ SC $ Proxy @CheckoutCommand
     ]
 
 lookupCommand :: String -> Maybe SomeCommandType
@@ -105,12 +106,12 @@ main = do
             padTo n str = str <> replicate (n - length str) ' '
             padCommand = padTo (maxCommandNameLength + 3)
             commandNameLength (SC proxy) = length $ commandName proxy
-            maxCommandNameLength = maximum $ map commandNameLength commands
+            maxCommandNameLength = maximum $ fmap commandNameLength commands
 
         putStr $ usageInfo header options <> unlines (
             [ ""
             , "Available commands:"
-            ] ++ map commandDesc commands
+            ] ++ map commandDesc (NE.toList commands)
           )
         exitSuccess
 
@@ -127,7 +128,7 @@ main = do
         _ -> ( , cmdargs ) <$> findConfig
 
     ( ncmd, cargs ) <- case cmdargs' of
-        [] -> return ( head commands, [] )
+        [] -> return ( NE.head commands, [] )
 
         (cname : cargs)
             | Just nc <- lookupCommand cname -> return (nc, cargs)
