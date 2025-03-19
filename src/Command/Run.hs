@@ -15,7 +15,6 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
-import System.FilePath
 import System.FilePath.Glob
 import System.IO
 
@@ -194,8 +193,7 @@ cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand RunOptions {..} args) = do
     CommonOptions {..} <- getCommonOptions
     tout <- getTerminalOutput
-    configPath <- getConfigPath
-    let baseDir = takeDirectory configPath
+    storageDir <- getStorageDir
 
     ( rangeOptions, jobOptions ) <- partitionEithers . concat <$> sequence
         [ forM roRanges $ \range -> case T.splitOn ".." range of
@@ -232,7 +230,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
     tags <- mapM watchTagSource roNewTags
 
     liftIO $ do
-        mngr <- newJobManager (baseDir </> ".minici") optJobs
+        mngr <- newJobManager storageDir optJobs
 
         source <- mergeSources $ concat [ [ argumentJobs ], ranges, branches, tags ]
         headerLine <- newLine tout ""

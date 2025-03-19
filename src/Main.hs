@@ -29,6 +29,7 @@ data CmdlineOptions = CmdlineOptions
     { optShowHelp :: Bool
     , optShowVersion :: Bool
     , optCommon :: CommonOptions
+    , optStorage :: Maybe FilePath
     }
 
 defaultCmdlineOptions :: CmdlineOptions
@@ -36,6 +37,7 @@ defaultCmdlineOptions = CmdlineOptions
     { optShowHelp = False
     , optShowVersion = False
     , optCommon = defaultCommonOptions
+    , optStorage = Nothing
     }
 
 options :: [ OptDescr (CmdlineOptions -> Except String CmdlineOptions) ]
@@ -60,6 +62,9 @@ options =
                 _ -> throwError $ "--repo: invalid value `" <> value <> "'"
         ) "<repo>:<path>")
         ("override or declare repo path")
+    , Option [] [ "storage" ]
+        (ReqArg (\value opts -> return opts { optStorage = Just value }) "<path>")
+        "set storage path"
     ]
 
 data SomeCommandType = forall c. Command c => SC (Proxy c)
@@ -139,7 +144,7 @@ main = do
                     ]
                 exitFailure
 
-    runSomeCommand configPath (optCommon opts) ncmd cargs
+    runSomeCommand configPath opts ncmd cargs
 
 data FullCommandOptions c = FullCommandOptions
     { fcoSpecific :: CommandOptions c
@@ -161,8 +166,10 @@ fullCommandOptions proxy =
         "show this help and exit"
     ]
 
-runSomeCommand :: Maybe FilePath -> CommonOptions -> SomeCommandType -> [ String ] -> IO ()
-runSomeCommand ciConfigPath ciOptions (SC tproxy) args = do
+runSomeCommand :: Maybe FilePath -> CmdlineOptions -> SomeCommandType -> [ String ] -> IO ()
+runSomeCommand ciConfigPath gopts (SC tproxy) args = do
+    let ciOptions = optCommon gopts
+        ciStorageDir = optStorage gopts
     let exitWithErrors errs = do
             hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
             exitFailure

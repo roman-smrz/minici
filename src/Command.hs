@@ -14,6 +14,7 @@ module Command (
     getRepo, getDefaultRepo, tryGetDefaultRepo,
     getEvalInput,
     getTerminalOutput,
+    getStorageDir,
 ) where
 
 import Control.Monad.Catch
@@ -27,6 +28,7 @@ import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
 import System.Exit
+import System.FilePath
 import System.IO
 
 import Config
@@ -103,6 +105,7 @@ data CommandInput = CommandInput
     , ciContainingRepo :: Maybe Repo
     , ciOtherRepos :: [ ( RepoName, Repo ) ]
     , ciTerminalOutput :: TerminalOutput
+    , ciStorageDir :: Maybe FilePath
     }
 
 getCommonOptions :: CommandExec CommonOptions
@@ -143,3 +146,8 @@ getEvalInput = CommandExec $ do
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)
+
+getStorageDir :: CommandExec FilePath
+getStorageDir = CommandExec (asks ciStorageDir) >>= \case
+    Just dir -> return dir
+    Nothing -> ((</> ".minici") . takeDirectory) <$> getConfigPath
