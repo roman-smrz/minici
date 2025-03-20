@@ -1,5 +1,12 @@
 # Revision history for MiniCI
 
+## 0.1.5 -- 2025-03-20
+
+* Accept job file path on command line
+* Added `checkout` command
+* Reference and checkout other repositories from job file
+* Accept names of jobs to run as command-line arguments
+
 ## 0.1.4 -- 2025-02-04
 
 * Fix invocation of `minici run` without arguments
