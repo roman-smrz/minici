@@ -9,7 +9,8 @@ module Repo (
     Tag(..),
 
     openRepo,
-    readCommit,
+    readCommit, tryReadCommit,
+    readTree, tryReadTree,
     readBranch,
     readTag,
     listCommits,
@@ -62,6 +63,9 @@ data Repo
         , gitInotify :: MVar (Maybe ( INotify, TChan (Tag Commit) ))
         , gitWatchedBranches :: MVar (Map Text [ TVar (Maybe Commit) ])
         }
+
+instance Show Repo where
+    show GitRepo {..} = gitDir
 
 data DeclaredRepo = DeclaredRepo
     { repoName :: RepoName
@@ -164,10 +168,25 @@ mkCommit commitRepo commitId_ = do
     return $ Commit {..}
 
 readCommit :: (MonadIO m, MonadFail m) => Repo -> Text -> m Commit
-readCommit repo@GitRepo {..} ref = liftIO $ do
-    readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", T.unpack ref <> "^{commit}" ] "" >>= \case
-        ( ExitSuccess, out, _ ) | cid : _ <- lines out -> mkCommit repo (CommitId $ BC.pack cid)
-        _                                              -> fail $ "revision `" <> T.unpack ref <> "' not found in `" <> gitDir <> "'"
+readCommit repo@GitRepo {..} ref = maybe (fail err) return =<< tryReadCommit repo ref
+    where err = "revision `" <> T.unpack ref <> "' not found in `" <> gitDir <> "'"
+
+tryReadCommit :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Maybe Commit)
+tryReadCommit repo ref = sequence . fmap (mkCommit repo . CommitId) =<< tryReadObjectId repo "commit" ref
+
+readTree :: (MonadIO m, MonadFail m) => Repo -> Text -> m Tree
+readTree repo@GitRepo {..} ref = maybe (fail err) return =<< tryReadTree repo ref
+    where err = "tree `" <> T.unpack ref <> "' not found in `" <> gitDir <> "'"
+
+tryReadTree :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Maybe Tree)
+tryReadTree repo ref = return . fmap (Tree repo . TreeId) =<< tryReadObjectId repo "tree" ref
+
+tryReadObjectId :: (MonadIO m, MonadFail m) => Repo -> Text -> Text -> m (Maybe ByteString)
+tryReadObjectId GitRepo {..} otype ref = do
+    liftIO (readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", T.unpack ref <> "^{" <> T.unpack otype <> "}" ] "") >>= \case
+        ( ExitSuccess, out, _ ) | oid : _ <- lines out -> return $ Just $ BC.pack oid
+        _                                              -> return Nothing
+
 
 readCommitFromFile :: MonadIO m => Repo -> FilePath -> m (Maybe Commit)
 readCommitFromFile repo@GitRepo {..} path = liftIO $ do
@@ -325,11 +344,11 @@ createWipCommit repo@GitRepo {..} = do
             _ -> readCommit repo "HEAD"
 
 
-readCommittedFile :: MonadIO m => Commit -> FilePath -> m (Maybe BL.ByteString)
-readCommittedFile Commit {..} path = do
-    let GitRepo {..} = commitRepo
+readCommittedFile :: MonadIO m => Tree -> FilePath -> m (Maybe BL.ByteString)
+readCommittedFile Tree {..} path = do
+    let GitRepo {..} = treeRepo
     liftIO $ withMVar gitLock $ \_ -> do
-        let cmd = (proc "git" [ "--git-dir=" <> gitDir, "cat-file", "blob", showCommitId commitId_ <> ":" <> path ])
+        let cmd = (proc "git" [ "--git-dir=" <> gitDir, "cat-file", "blob", showTreeId treeId <> ":" <> path ])
                 { std_in = NoStream
                 , std_out = CreatePipe
                 }

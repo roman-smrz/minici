@@ -68,3 +68,12 @@ data JobIdPart
     | JobIdCommit CommitId
     | JobIdTree TreeId
     deriving (Eq, Ord)
+
+newtype JobRef = JobRef [ Text ]
+    deriving (Eq, Ord)
+
+textJobIdPart :: JobIdPart -> Text
+textJobIdPart = \case
+    JobIdName name -> textJobName name
+    JobIdCommit cid -> textCommitId cid
+    JobIdTree tid -> textTreeId tid

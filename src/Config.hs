@@ -157,14 +157,14 @@ parseConfig contents = do
             Left $ prettyPosWithSource pos contents err
         Right conf -> Right conf
 
-loadConfigForCommit :: MonadIO m => Commit -> m (Either String Config)
-loadConfigForCommit commit = do
-    readCommittedFile commit configFileName >>= return . \case
+loadConfigForCommit :: MonadIO m => Tree -> m (Either String Config)
+loadConfigForCommit tree = do
+    readCommittedFile tree configFileName >>= return . \case
         Just content -> either (\_ -> Left $ "failed to parse " <> configFileName) Right $ parseConfig content
         Nothing -> Left $ configFileName <> " not found"
 
-loadJobSetForCommit :: MonadIO m => Commit -> m DeclaredJobSet
-loadJobSetForCommit commit = toJobSet <$> loadConfigForCommit commit
+loadJobSetForCommit :: (MonadIO m, MonadFail m) => Commit -> m DeclaredJobSet
+loadJobSetForCommit commit = return . toJobSet =<< loadConfigForCommit =<< getCommitTree commit
   where
     toJobSet configEither = JobSet
         { jobsetCommit = Just commit

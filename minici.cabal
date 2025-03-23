@@ -49,6 +49,7 @@ executable minici
     other-modules:
         Command
         Command.Checkout
+        Command.JobId
         Command.Run
         Config
         Eval
