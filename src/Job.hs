@@ -343,10 +343,10 @@ runJob job uses checkoutPath jdir = do
             let target = adir </> T.unpack tname </> takeFileName path
             liftIO $ do
                 createDirectoryIfMissing True $ takeDirectory target
-                copyFile (checkoutPath </> path) target
+                copyFile path target
             return $ ArtifactOutput
                 { aoutName = name
-                , aoutWorkPath = path
+                , aoutWorkPath = makeRelative checkoutPath path
                 , aoutStorePath = target
                 }
 
