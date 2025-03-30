@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               minici
-version:            0.1.5
+version:            0.1.6
 synopsis:           Minimalist CI framework to run checks on local machine
 description:
     Runs defined jobs, for example to build and test a project, for each git

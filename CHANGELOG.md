@@ -1,5 +1,10 @@
 # Revision history for MiniCI
 
+## 0.1.6 -- 2025-03-30
+
+* Added `jobid` command resolving job reference to canonical ID
+* Fix copying of used artifacts to appropriate working directory
+
 ## 0.1.5 -- 2025-03-20
 
 * Accept job file path on command line
