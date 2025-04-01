@@ -1,4 +1,5 @@
 module Config (
+    JobRoot(..),
     Config(..),
     findConfig,
     parseConfig,
@@ -32,6 +33,11 @@ import Repo
 
 configFileName :: FilePath
 configFileName = "minici.yaml"
+
+
+data JobRoot
+    = JobRootRepo Repo
+    | JobRootConfig Config
 
 
 data Config = Config

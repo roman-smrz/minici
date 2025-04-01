@@ -31,9 +31,8 @@ instance Command JobIdCommand where
 
 cmdJobId :: JobIdCommand -> CommandExec ()
 cmdJobId (JobIdCommand ref) = do
-    config <- getConfig
     einput <- getEvalInput
     JobId ids <- either (tfail . textEvalError) return =<<
-        liftIO (runEval (evalJobReference config ref) einput)
+        liftIO (runEval (evalJobReference ref) einput)
 
     liftIO $ T.putStrLn $ T.intercalate "." $ map textJobIdPart ids

@@ -85,7 +85,7 @@ lookupCommand name = find p commands
 main :: IO ()
 main = do
     args <- getArgs
-    let ( mbConfigPath, args' ) = case args of
+    let ( mbRootPath, args' ) = case args of
             (path : rest)
                 | any isPathSeparator path -> ( Just path, rest )
             _ -> ( Nothing, args )
@@ -126,13 +126,13 @@ main = do
         putStrLn versionLine
         exitSuccess
 
-    ( configPath, cmdargs' ) <- case ( mbConfigPath, cmdargs ) of
+    ( rootPath, cmdargs' ) <- case ( mbRootPath, cmdargs ) of
         ( Just path, _ )
             -> return ( Just path, cmdargs )
         ( _, path : rest )
             | any isPathSeparator path
             -> return ( Just path, rest )
-        _ -> ( , cmdargs ) <$> findConfig
+        _   -> return ( Nothing , cmdargs )
 
     ( ncmd, cargs ) <- case cmdargs' of
         [] -> return ( NE.head commands, [] )
@@ -146,7 +146,7 @@ main = do
                     ]
                 exitFailure
 
-    runSomeCommand configPath opts ncmd cargs
+    runSomeCommand rootPath opts ncmd cargs
 
 data FullCommandOptions c = FullCommandOptions
     { fcoSpecific :: CommandOptions c
@@ -169,9 +169,35 @@ fullCommandOptions proxy =
     ]
 
 runSomeCommand :: Maybe FilePath -> CmdlineOptions -> SomeCommandType -> [ String ] -> IO ()
-runSomeCommand ciConfigPath gopts (SC tproxy) args = do
+runSomeCommand rootPath gopts (SC tproxy) args = do
+    let reportFailure err = hPutStrLn stderr err >> exitFailure
+    ( ciRootPath, ciJobRoot ) <- case rootPath of
+        Just path -> do
+            doesFileExist path >>= \case
+                True -> BL.readFile path >>= return . parseConfig >>= \case
+                    Right config -> return ( path, JobRootConfig config )
+                    Left err -> reportFailure $ "Failed to parse job file ‘" <> path <> "’:" <> err
+                False -> doesDirectoryExist path >>= \case
+                    True -> openRepo path >>= \case
+                        Just repo -> return ( path, JobRootRepo repo )
+                        Nothing -> reportFailure $ "Failed to open repository ‘" <> path <> "’"
+                    False -> reportFailure $ "File or directory ‘" <> path <> "’ not found"
+        Nothing -> do
+            openRepo "." >>= \case
+                Just repo -> return ( ".", JobRootRepo repo )
+                Nothing -> findConfig >>= \case
+                    Just path -> BL.readFile path >>= return . parseConfig >>= \case
+                        Right config -> return ( path, JobRootConfig config )
+                        Left err -> reportFailure $ "Failed to parse job file ‘" <> path <> "’:" <> err
+                    Nothing -> reportFailure $ "No job file or repository found"
+
+    let storageFileName = ".minici"
+        ciStorageDir = case ( optStorage gopts, ciRootPath, ciJobRoot ) of
+            ( Just path, _   , _                ) -> path
+            ( Nothing  , path, JobRootConfig {} ) -> takeDirectory path </> storageFileName
+            ( Nothing  , _   , JobRootRepo repo ) -> getRepoWorkDir repo </> storageFileName
+
     let ciOptions = optCommon gopts
-        ciStorageDir = optStorage gopts
     let exitWithErrors errs = do
             hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
             exitFailure
@@ -188,14 +214,12 @@ runSomeCommand ciConfigPath gopts (SC tproxy) args = do
         putStr $ usageInfo (T.unpack $ commandUsage tproxy) (fullCommandOptions tproxy)
         exitSuccess
 
-    ciConfig <- case ciConfigPath of
-        Just path -> parseConfig <$> BL.readFile path
-        Nothing -> return $ Left "no job file found"
-
     let cmd = commandInit tproxy (fcoSpecific opts) cmdargs
     let CommandExec exec = commandExec cmd
 
-    ciContainingRepo <- maybe (return Nothing) (openRepo . takeDirectory) ciConfigPath
+    ciContainingRepo <- case ciJobRoot of
+        JobRootRepo repo -> return (Just repo)
+        JobRootConfig _  -> openRepo $ takeDirectory ciRootPath
 
     let openDeclaredRepo dir decl = do
             let path = dir </> repoPath decl
@@ -207,12 +231,12 @@ runSomeCommand ciConfigPath gopts (SC tproxy) args = do
                     exitFailure
 
     cmdlineRepos <- forM (optRepo ciOptions) (openDeclaredRepo "")
-    configRepos <- case ( ciConfigPath, ciConfig ) of
-        ( Just path, Right config ) ->
+    configRepos <- case ciJobRoot of
+        JobRootConfig config ->
             forM (configRepos config) $ \decl -> do
                 case lookup (repoName decl) cmdlineRepos of
                     Just repo -> return ( repoName decl, repo )
-                    Nothing -> openDeclaredRepo (takeDirectory path) decl
+                    Nothing -> openDeclaredRepo (takeDirectory ciRootPath) decl
         _ -> return []
 
     let ciOtherRepos = configRepos ++ cmdlineRepos

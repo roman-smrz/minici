@@ -9,8 +9,7 @@ module Command (
     tfail,
     CommandInput(..),
     getCommonOptions,
-    getConfigPath,
-    getConfig,
+    getRootPath, getJobRoot,
     getRepo, getDefaultRepo, tryGetDefaultRepo,
     getEvalInput,
     getTerminalOutput,
@@ -28,7 +27,6 @@ import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
 import System.Exit
-import System.FilePath
 import System.IO
 
 import Config
@@ -100,28 +98,22 @@ tfail err = liftIO $ do
 
 data CommandInput = CommandInput
     { ciOptions :: CommonOptions
-    , ciConfigPath :: Maybe FilePath
-    , ciConfig :: Either String Config
+    , ciRootPath :: FilePath
+    , ciJobRoot :: JobRoot
     , ciContainingRepo :: Maybe Repo
     , ciOtherRepos :: [ ( RepoName, Repo ) ]
     , ciTerminalOutput :: TerminalOutput
-    , ciStorageDir :: Maybe FilePath
+    , ciStorageDir :: FilePath
     }
 
 getCommonOptions :: CommandExec CommonOptions
 getCommonOptions = CommandExec (asks ciOptions)
 
-getConfigPath :: CommandExec FilePath
-getConfigPath = do
-    CommandExec (asks ciConfigPath) >>= \case
-        Nothing -> tfail $ "no job file found"
-        Just path -> return path
+getRootPath :: CommandExec FilePath
+getRootPath = CommandExec (asks ciRootPath)
 
-getConfig :: CommandExec Config
-getConfig = do
-    CommandExec (asks ciConfig) >>= \case
-        Left err -> fail err
-        Right config -> return config
+getJobRoot :: CommandExec JobRoot
+getJobRoot = CommandExec (asks ciJobRoot)
 
 getRepo :: RepoName -> CommandExec Repo
 getRepo name = do
@@ -140,6 +132,8 @@ tryGetDefaultRepo = CommandExec $ asks ciContainingRepo
 
 getEvalInput :: CommandExec EvalInput
 getEvalInput = CommandExec $ do
+    eiJobRoot <- asks ciJobRoot
+    eiRootPath <- asks ciRootPath
     eiContainingRepo <- asks ciContainingRepo
     eiOtherRepos <- asks ciOtherRepos
     return EvalInput {..}
@@ -148,6 +142,4 @@ getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)
 
 getStorageDir :: CommandExec FilePath
-getStorageDir = CommandExec (asks ciStorageDir) >>= \case
-    Just dir -> return dir
-    Nothing -> ((</> ".minici") . takeDirectory) <$> getConfigPath
+getStorageDir = CommandExec (asks ciStorageDir)

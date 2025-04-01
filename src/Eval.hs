@@ -14,6 +14,7 @@ import Control.Monad.Reader
 
 import Data.Bifunctor
 import Data.List
+import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -22,7 +23,9 @@ import Job.Types
 import Repo
 
 data EvalInput = EvalInput
-    { eiContainingRepo :: Maybe Repo
+    { eiJobRoot :: JobRoot
+    , eiRootPath :: FilePath
+    , eiContainingRepo :: Maybe Repo
     , eiOtherRepos :: [ ( RepoName, Repo ) ]
     }
 
@@ -66,17 +69,22 @@ evalJobSet ei decl = do
     runExceptStr = first (T.unpack . textEvalError) . runExcept
 
 
-canonicalJobName :: [ Text ] -> Config -> Eval [ JobIdPart ]
-canonicalJobName (r : rs) config = do
+canonicalJobName :: [ Text ] -> Maybe Tree -> Config -> Eval [ JobIdPart ]
+canonicalJobName (r : rs) mbTree config = do
     einput <- ask
     let name = JobName r
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
             job <- either throwError return $ runExcept $ evalJob einput djob
-            let repos = nub $ map (\( EvaluatedJobRepo repo, _, _ ) -> repo) $ jobOtherCheckout job
+            repos <- concat <$> sequence
+                [ case mbTree of
+                    Just _ -> return []
+                    Nothing -> maybeToList <$> asks eiContainingRepo
+                , return $ nub $ map (\( EvaluatedJobRepo repo, _, _ ) -> repo) $ jobOtherCheckout job
+                ]
             (JobIdName name :) <$> canonicalOtherCheckouts rs repos
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
-canonicalJobName [] _ = throwError $ OtherEvalError "expected job name"
+canonicalJobName [] _ _ = throwError $ OtherEvalError "expected job name"
 
 canonicalOtherCheckouts :: [ Text ] -> [ Repo ] -> Eval [ JobIdPart ]
 canonicalOtherCheckouts (r : rs) (repo : repos) = do
@@ -98,14 +106,14 @@ canonicalCommitConfig (r : rs) repo = do
             Just tree -> return tree
             Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
     config <- either fail return =<< loadConfigForCommit tree
-    (JobIdTree (treeId tree) :) <$> canonicalJobName rs config
+    (JobIdTree (treeId tree) :) <$> canonicalJobName rs (Just tree) config
 canonicalCommitConfig [] _ = throwError $ OtherEvalError "expected commit or tree reference"
 
-evalJobReference :: Config -> JobRef -> Eval JobId
-evalJobReference config (JobRef rs) =
-    fmap JobId $ do
-        asks eiContainingRepo >>= \case
-            Just defRepo -> do
+evalJobReference :: JobRef -> Eval JobId
+evalJobReference (JobRef rs) =
+    JobId <$> do
+        asks eiJobRoot >>= \case
+            JobRootRepo defRepo -> do
                 canonicalCommitConfig rs defRepo
-            Nothing -> do
-                canonicalJobName rs config
+            JobRootConfig config -> do
+                canonicalJobName rs Nothing config

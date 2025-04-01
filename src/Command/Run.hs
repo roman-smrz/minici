@@ -123,24 +123,41 @@ mergeSources sources = do
 argumentJobSource :: [ JobName ] -> CommandExec JobSource
 argumentJobSource [] = emptyJobSource
 argumentJobSource names = do
-    config <- getConfig
+    ( config, jobsetCommit ) <- getJobRoot >>= \case
+        JobRootConfig config -> do
+            commit <- sequence . fmap createWipCommit =<< tryGetDefaultRepo
+            return ( config, commit )
+        JobRootRepo repo -> do
+            commit <- createWipCommit repo
+            config <- either fail return =<< loadConfigForCommit =<< getCommitTree commit
+            return ( config, Just commit )
+
     einput <- getEvalInput
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
             Nothing -> tfail $ "job `" <> textJobName name <> "' not found"
-    jobsetCommit <- sequence . fmap createWipCommit =<< tryGetDefaultRepo
     oneshotJobSource [ evalJobSet einput JobSet {..} ]
+
+loadJobSetFromRoot :: (MonadIO m, MonadFail m) => JobRoot -> Commit -> m DeclaredJobSet
+loadJobSetFromRoot root commit = case root of
+    JobRootRepo _ -> loadJobSetForCommit commit
+    JobRootConfig config -> return JobSet
+        { jobsetCommit = Just commit
+        , jobsetJobsEither = Right $ configJobs config
+        }
 
 rangeSource :: Text -> Text -> CommandExec JobSource
 rangeSource base tip = do
+    root <- getJobRoot
     repo <- getDefaultRepo
     einput <- getEvalInput
     commits <- listCommits repo (base <> ".." <> tip)
-    oneshotJobSource . map (evalJobSet einput) =<< mapM loadJobSetForCommit commits
+    oneshotJobSource . map (evalJobSet einput) =<< mapM (loadJobSetFromRoot root) commits
 
 watchBranchSource :: Text -> CommandExec JobSource
 watchBranchSource branch = do
+    root <- getJobRoot
     repo <- getDefaultRepo
     einput <- getEvalInput
     getCurrentTip <- watchBranch repo branch
@@ -153,7 +170,7 @@ watchBranchSource branch = do
                     Nothing -> retry
 
             commits <- listCommits repo (textCommitId (commitId prev) <> ".." <> textCommitId (commitId cur))
-            jobsets <- map (evalJobSet einput) <$> mapM loadJobSetForCommit commits
+            jobsets <- map (evalJobSet einput) <$> mapM (loadJobSetFromRoot root) commits
             nextvar <- newEmptyTMVarIO
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
             go cur nextvar
@@ -170,6 +187,7 @@ watchBranchSource branch = do
 
 watchTagSource :: Pattern -> CommandExec JobSource
 watchTagSource pat = do
+    root <- getJobRoot
     chan <- watchTags =<< getDefaultRepo
     einput <- getEvalInput
 
@@ -177,7 +195,7 @@ watchTagSource pat = do
             tag <- atomically $ readTChan chan
             if match pat $ T.unpack $ tagTag tag
               then do
-                jobset <- evalJobSet einput <$> loadJobSetForCommit (tagObject tag)
+                jobset <- evalJobSet einput <$> (loadJobSetFromRoot root) (tagObject tag)
                 nextvar <- newEmptyTMVarIO
                 atomically $ putTMVar tmvar $ Just ( [ jobset ], JobSource nextvar )
                 go nextvar
@@ -202,13 +220,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
         , forM roSinceUpstream $ return . Left . ( Nothing, )
         , forM args $ \arg -> case T.splitOn ".." arg of
             [ base, tip ] -> return $ Left ( Just base, tip )
-            [ _ ] -> do
-                config <- getConfig
-                if any ((JobName arg ==) . jobName) (configJobs config)
-                  then return $ Right $ JobName arg
-                  else do
-                    liftIO $ T.hPutStrLn stderr $ "standalone `" <> arg <> "' argument deprecated, use `--since-upstream=" <> arg <> "' instead"
-                    return $ Left ( Nothing, arg )
+            [ _ ] -> return $ Right $ JobName arg
             _ -> tfail $ "invalid argument: " <> arg
         ]
 

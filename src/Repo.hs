@@ -1,5 +1,5 @@
 module Repo (
-    Repo,
+    Repo, getRepoWorkDir,
     DeclaredRepo(..),
     RepoName(..), textRepoName, showRepoName,
     Commit, commitId,
@@ -66,6 +66,9 @@ data Repo
 
 instance Show Repo where
     show GitRepo {..} = gitDir
+
+getRepoWorkDir :: Repo -> FilePath
+getRepoWorkDir GitRepo {..} = takeDirectory gitDir
 
 data DeclaredRepo = DeclaredRepo
     { repoName :: RepoName
