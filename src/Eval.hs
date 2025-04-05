@@ -44,10 +44,10 @@ runEval action einput = runExceptT $ flip runReaderT einput action
 
 evalJob :: EvalInput -> DeclaredJob -> Except EvalError Job
 evalJob EvalInput {..} decl = do
-    otherCheckout <- forM (jobOtherCheckout decl) $ \( DeclaredJobRepo name, revision, checkout ) -> do
+    otherCheckout <- forM (jobOtherCheckout decl) $ \( name, revision, checkout ) -> do
         repo <- maybe (throwError $ OtherEvalError $ "repo `" <> textRepoName name <> "' not defined") return $
             lookup name eiOtherRepos
-        return ( EvaluatedJobRepo repo, revision, checkout )
+        return ( repo, revision, checkout )
     return Job
         { jobName = jobName decl
         , jobContainingCheckout = jobContainingCheckout decl
@@ -80,7 +80,7 @@ canonicalJobName (r : rs) mbTree config = do
                 [ case mbTree of
                     Just _ -> return []
                     Nothing -> maybeToList <$> asks eiContainingRepo
-                , return $ nub $ map (\( EvaluatedJobRepo repo, _, _ ) -> repo) $ jobOtherCheckout job
+                , return $ nub $ map (\( repo, _, _ ) -> repo) $ jobOtherCheckout job
                 ]
             (JobIdName name :) <$> canonicalOtherCheckouts rs repos
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"

@@ -1,5 +1,6 @@
 module Job.Types where
 
+import Data.Kind
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -34,9 +35,9 @@ textJobName :: JobName -> Text
 textJobName (JobName name) = name
 
 
-data JobRepo d where
-    DeclaredJobRepo :: RepoName -> JobRepo Declared
-    EvaluatedJobRepo :: Repo -> JobRepo Evaluated
+type family JobRepo d :: Type where
+    JobRepo Declared = RepoName
+    JobRepo Evaluated = Repo
 
 data JobCheckout = JobCheckout
     { jcSubtree :: Maybe FilePath

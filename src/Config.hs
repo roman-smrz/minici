@@ -101,7 +101,7 @@ parseSingleCheckout = withMap "checkout definition" $ \m -> do
         Nothing -> return [ Left checkout ]
         Just name -> do
             revision <- m .:? "revision"
-            return [ Right ( DeclaredJobRepo (RepoName name), revision, checkout ) ]
+            return [ Right ( RepoName name, revision, checkout ) ]
 
 parseMultipleCheckouts :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, Maybe Text, JobCheckout ) ]
 parseMultipleCheckouts = withSeq "checkout definitions" $ fmap concat . mapM parseSingleCheckout

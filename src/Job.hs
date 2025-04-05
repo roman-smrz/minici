@@ -297,7 +297,7 @@ prepareJob dir mbCommit job inner = do
                     fail $ "no containing repository, can't do checkout"
                 return $ stringJobName (jobName job)
 
-        jdirOther <- forM (jobOtherCheckout job) $ \( EvaluatedJobRepo repo, revision, JobCheckout mbsub dest ) -> do
+        jdirOther <- forM (jobOtherCheckout job) $ \( repo, revision, JobCheckout mbsub dest ) -> do
             commit <- readCommit repo $ fromMaybe "HEAD" revision
             tree <- getCommitTree commit
             subtree <- maybe return (getSubtree (Just commit)) mbsub $ tree
