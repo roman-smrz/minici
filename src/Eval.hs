@@ -25,6 +25,7 @@ import Repo
 data EvalInput = EvalInput
     { eiJobRoot :: JobRoot
     , eiRootPath :: FilePath
+    , eiCurrentIdRev :: [ JobIdPart ]
     , eiContainingRepo :: Maybe Repo
     , eiOtherRepos :: [ ( RepoName, Repo ) ]
     }
@@ -49,7 +50,8 @@ evalJob EvalInput {..} decl = do
             lookup name eiOtherRepos
         return ( repo, revision, checkout )
     return Job
-        { jobName = jobName decl
+        { jobId = JobId $ reverse $ JobIdName (jobId decl) : eiCurrentIdRev
+        , jobName = jobName decl
         , jobContainingCheckout = jobContainingCheckout decl
         , jobOtherCheckout = otherCheckout
         , jobRecipe = jobRecipe decl

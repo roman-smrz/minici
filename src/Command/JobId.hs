@@ -35,4 +35,4 @@ cmdJobId (JobIdCommand ref) = do
     JobId ids <- either (tfail . textEvalError) return =<<
         liftIO (runEval (evalJobReference ref) einput)
 
-    liftIO $ T.putStrLn $ T.intercalate "." $ map textJobIdPart ids
+    liftIO $ T.putStrLn $ textJobId $ JobId ids

@@ -78,6 +78,7 @@ instance FromYAML Config where
 parseJob :: Text -> Node Pos -> Parser DeclaredJob
 parseJob name node = flip (withMap "Job") node $ \j -> do
     let jobName = JobName name
+        jobId = jobName
     ( jobContainingCheckout, jobOtherCheckout ) <- partitionEithers <$> choice
         [ parseSingleCheckout =<< j .: "checkout"
         , parseMultipleCheckouts =<< j .: "checkout"

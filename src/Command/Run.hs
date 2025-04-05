@@ -22,6 +22,7 @@ import Command
 import Config
 import Eval
 import Job
+import Job.Types
 import Repo
 import Terminal
 
@@ -132,7 +133,13 @@ argumentJobSource names = do
             config <- either fail return =<< loadConfigForCommit =<< getCommitTree commit
             return ( config, Just commit )
 
-    einput <- getEvalInput
+    cidPart <- case jobsetCommit of
+        Just commit -> (: []) . JobIdTree . treeId <$> getCommitTree commit
+        Nothing -> return []
+    einputBase <- getEvalInput
+    let einput = einputBase
+            { eiCurrentIdRev = cidPart ++ eiCurrentIdRev einputBase
+            }
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
@@ -151,15 +158,22 @@ rangeSource :: Text -> Text -> CommandExec JobSource
 rangeSource base tip = do
     root <- getJobRoot
     repo <- getDefaultRepo
-    einput <- getEvalInput
+    einputBase <- getEvalInput
     commits <- listCommits repo (base <> ".." <> tip)
-    oneshotJobSource . map (evalJobSet einput) =<< mapM (loadJobSetFromRoot root) commits
+    jobsets <- forM commits $ \commit -> do
+        tree <- getCommitTree commit
+        let einput = einputBase
+                { eiCurrentIdRev = JobIdTree (treeId tree) : eiCurrentIdRev einputBase
+                }
+        evalJobSet einput <$> loadJobSetFromRoot root commit
+    oneshotJobSource jobsets
+
 
 watchBranchSource :: Text -> CommandExec JobSource
 watchBranchSource branch = do
     root <- getJobRoot
     repo <- getDefaultRepo
-    einput <- getEvalInput
+    einputBase <- getEvalInput
     getCurrentTip <- watchBranch repo branch
     let go prev tmvar = do
             cur <- atomically $ do
@@ -170,7 +184,12 @@ watchBranchSource branch = do
                     Nothing -> retry
 
             commits <- listCommits repo (textCommitId (commitId prev) <> ".." <> textCommitId (commitId cur))
-            jobsets <- map (evalJobSet einput) <$> mapM (loadJobSetFromRoot root) commits
+            jobsets <- forM commits $ \commit -> do
+                tree <- getCommitTree commit
+                let einput = einputBase
+                        { eiCurrentIdRev = JobIdTree (treeId tree) : eiCurrentIdRev einputBase
+                        }
+                evalJobSet einput <$> loadJobSetFromRoot root commit
             nextvar <- newEmptyTMVarIO
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
             go cur nextvar
@@ -189,12 +208,16 @@ watchTagSource :: Pattern -> CommandExec JobSource
 watchTagSource pat = do
     root <- getJobRoot
     chan <- watchTags =<< getDefaultRepo
-    einput <- getEvalInput
+    einputBase <- getEvalInput
 
     let go tmvar = do
             tag <- atomically $ readTChan chan
             if match pat $ T.unpack $ tagTag tag
               then do
+                tree <- getCommitTree $ tagObject tag
+                let einput = einputBase
+                        { eiCurrentIdRev = JobIdTree (treeId tree) : eiCurrentIdRev einputBase
+                        }
                 jobset <- evalJobSet einput <$> (loadJobSetFromRoot root) (tagObject tag)
                 nextvar <- newEmptyTMVarIO
                 atomically $ putTMVar tmvar $ Just ( [ jobset ], JobSource nextvar )

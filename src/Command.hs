@@ -134,6 +134,7 @@ getEvalInput :: CommandExec EvalInput
 getEvalInput = CommandExec $ do
     eiJobRoot <- asks ciJobRoot
     eiRootPath <- asks ciRootPath
+    eiCurrentIdRev <- return []
     eiContainingRepo <- asks ciContainingRepo
     eiOtherRepos <- asks ciOtherRepos
     return EvalInput {..}

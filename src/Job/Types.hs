@@ -14,7 +14,8 @@ data Declared
 data Evaluated
 
 data Job' d = Job
-    { jobName :: JobName
+    { jobId :: JobId' d
+    , jobName :: JobName
     , jobContainingCheckout :: [ JobCheckout ]
     , jobOtherCheckout :: [ ( JobRepo d, Maybe Text, JobCheckout ) ]
     , jobRecipe :: [ CreateProcess ]
@@ -24,6 +25,10 @@ data Job' d = Job
 
 type Job = Job' Evaluated
 type DeclaredJob = Job' Declared
+
+type family JobId' d :: Type where
+    JobId' Declared = JobName
+    JobId' Evaluated = JobId
 
 data JobName = JobName Text
     deriving (Eq, Ord, Show)
@@ -78,3 +83,6 @@ textJobIdPart = \case
     JobIdName name -> textJobName name
     JobIdCommit cid -> textCommitId cid
     JobIdTree tid -> textTreeId tid
+
+textJobId :: JobId -> Text
+textJobId (JobId ids) = T.intercalate "." $ map textJobIdPart ids
