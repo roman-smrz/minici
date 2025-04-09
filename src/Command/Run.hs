@@ -253,11 +253,18 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
     argumentJobs <- argumentJobSource jobOptions
 
-    let rangeOptions'
-            | null rangeOptions, null roNewCommitsOn, null roNewTags, null jobOptions = [ ( Nothing, "HEAD" ) ]
-            | otherwise = rangeOptions
+    defaultSource <- getJobRoot >>= \case
+        _ | not (null rangeOptions && null roNewCommitsOn && null roNewTags && null jobOptions) -> do
+            emptyJobSource
 
-    ranges <- forM rangeOptions' $ \( mbBase, paramTip ) -> do
+        JobRootRepo repo -> do
+            Just base <- findUpstreamRef repo "HEAD"
+            rangeSource base "HEAD"
+
+        JobRootConfig config -> do
+            argumentJobSource (jobName <$> configJobs config)
+
+    ranges <- forM rangeOptions $ \( mbBase, paramTip ) -> do
         ( base, tip ) <- case mbBase of
             Just base -> return ( base, paramTip )
             Nothing -> do
@@ -271,7 +278,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
     liftIO $ do
         mngr <- newJobManager storageDir optJobs
 
-        source <- mergeSources $ concat [ [ argumentJobs ], ranges, branches, tags ]
+        source <- mergeSources $ concat [ [ defaultSource, argumentJobs ], ranges, branches, tags ]
         headerLine <- newLine tout ""
 
         threadCount <- newTVarIO (0 :: Int)
