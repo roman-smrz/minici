@@ -238,11 +238,15 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
     ( rangeOptions, jobOptions ) <- partitionEithers . concat <$> sequence
         [ forM roRanges $ \range -> case T.splitOn ".." range of
-            [ base, tip ] -> return $ Left ( Just base, tip )
+            [ base, tip ]
+                | not (T.null base) && not (T.null tip)
+                -> return $ Left ( Just base, tip )
             _ -> tfail $ "invalid range: " <> range
         , forM roSinceUpstream $ return . Left . ( Nothing, )
         , forM args $ \arg -> case T.splitOn ".." arg of
-            [ base, tip ] -> return $ Left ( Just base, tip )
+            [ base, tip ]
+                | not (T.null base) && not (T.null tip)
+                -> return $ Left ( Just base, tip )
             [ _ ] -> return $ Right $ JobName arg
             _ -> tfail $ "invalid argument: " <> arg
         ]
