@@ -12,7 +12,6 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
 
-import Data.Bifunctor
 import Data.List
 import Data.Maybe
 import Data.Text (Text)
@@ -43,8 +42,9 @@ runEval :: Eval a -> EvalInput -> IO (Either EvalError a)
 runEval action einput = runExceptT $ flip runReaderT einput action
 
 
-evalJob :: EvalInput -> DeclaredJob -> Except EvalError Job
-evalJob EvalInput {..} decl = do
+evalJob :: DeclaredJob -> Eval Job
+evalJob decl = do
+    EvalInput {..} <- ask
     otherCheckout <- forM (jobOtherCheckout decl) $ \( name, revision, checkout ) -> do
         repo <- maybe (throwError $ OtherEvalError $ "repo `" <> textRepoName name <> "' not defined") return $
             lookup name eiOtherRepos
@@ -59,25 +59,23 @@ evalJob EvalInput {..} decl = do
         , jobUses = jobUses decl
         }
 
-evalJobSet :: EvalInput -> DeclaredJobSet -> JobSet
-evalJobSet ei decl = do
-    JobSet
+evalJobSet :: DeclaredJobSet -> Eval JobSet
+evalJobSet decl = do
+    jobs <- either (return . Left) (handleToEither . mapM evalJob) $ jobsetJobsEither decl
+    return JobSet
         { jobsetCommit = jobsetCommit decl
-        , jobsetJobsEither = join $
-            fmap (sequence . map (runExceptStr . evalJob ei)) $
-            jobsetJobsEither decl
+        , jobsetJobsEither = jobs
         }
   where
-    runExceptStr = first (T.unpack . textEvalError) . runExcept
+    handleToEither = handleError (return . Left . T.unpack . textEvalError) . fmap Right
 
 
 canonicalJobName :: [ Text ] -> Maybe Tree -> Config -> Eval [ JobIdPart ]
 canonicalJobName (r : rs) mbTree config = do
-    einput <- ask
     let name = JobName r
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
-            job <- either throwError return $ runExcept $ evalJob einput djob
+            job <- evalJob djob
             repos <- concat <$> sequence
                 [ case mbTree of
                     Just _ -> return []

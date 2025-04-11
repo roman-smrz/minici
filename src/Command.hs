@@ -11,7 +11,7 @@ module Command (
     getCommonOptions,
     getRootPath, getJobRoot,
     getRepo, getDefaultRepo, tryGetDefaultRepo,
-    getEvalInput,
+    getEvalInput, cmdEvalWith,
     getTerminalOutput,
     getStorageDir,
 ) where
@@ -138,6 +138,10 @@ getEvalInput = CommandExec $ do
     eiContainingRepo <- asks ciContainingRepo
     eiOtherRepos <- asks ciOtherRepos
     return EvalInput {..}
+
+cmdEvalWith :: (EvalInput -> EvalInput) -> Eval a -> CommandExec a
+cmdEvalWith f ev = do
+    either (tfail . textEvalError) return =<< liftIO .runEval ev . f =<< getEvalInput
 
 getTerminalOutput :: CommandExec TerminalOutput
 getTerminalOutput = CommandExec (asks ciTerminalOutput)
