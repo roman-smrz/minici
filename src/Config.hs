@@ -93,7 +93,7 @@ parseJob name node = flip (withMap "Job") node $ \j -> do
     jobUses <- maybe (return []) parseUses =<< j .:? "uses"
     return Job {..}
 
-parseSingleCheckout :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, Maybe Text, JobCheckout ) ]
+parseSingleCheckout :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, JobCheckout ) ]
 parseSingleCheckout = withMap "checkout definition" $ \m -> do
     jcSubtree <- fmap T.unpack <$> m .:? "subtree"
     jcDestination <- fmap T.unpack <$> m .:? "dest"
@@ -102,9 +102,9 @@ parseSingleCheckout = withMap "checkout definition" $ \m -> do
         Nothing -> return [ Left checkout ]
         Just name -> do
             revision <- m .:? "revision"
-            return [ Right ( RepoName name, revision, checkout ) ]
+            return [ Right (( RepoName name, revision ), checkout ) ]
 
-parseMultipleCheckouts :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, Maybe Text, JobCheckout ) ]
+parseMultipleCheckouts :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, JobCheckout ) ]
 parseMultipleCheckouts = withSeq "checkout definitions" $ fmap concat . mapM parseSingleCheckout
 
 cabalJob :: Node Pos -> Parser [CreateProcess]

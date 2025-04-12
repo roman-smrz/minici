@@ -183,19 +183,17 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
 
 runJobs :: JobManager -> TerminalOutput -> Maybe Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
 runJobs mngr@JobManager {..} tout commit jobs = do
-    tree <- sequence $ fmap getCommitTree commit
     results <- atomically $ do
         forM jobs $ \job -> do
-            let jid = JobId $ concat [ JobIdTree . treeId <$> maybeToList tree, [ JobIdName (jobName job) ] ]
             tid <- reserveTaskId mngr
             managed <- readTVar jmJobs
-            ( job, tid, ) <$> case M.lookup jid managed of
+            ( job, tid, ) <$> case M.lookup (jobId job) managed of
                 Just origVar -> do
-                    newTVar . JobDuplicate jid =<< readTVar origVar
+                    newTVar . JobDuplicate (jobId job) =<< readTVar origVar
 
                 Nothing -> do
                     statusVar <- newTVar JobQueued
-                    writeTVar jmJobs $ M.insert jid statusVar managed
+                    writeTVar jmJobs $ M.insert (jobId job) statusVar managed
                     return statusVar
 
     forM_ results $ \( job, tid, outVar ) -> void $ forkIO $ do
@@ -297,10 +295,8 @@ prepareJob dir mbCommit job inner = do
                     fail $ "no containing repository, can't do checkout"
                 return $ stringJobName (jobName job)
 
-        jdirOther <- forM (jobOtherCheckout job) $ \( repo, revision, JobCheckout mbsub dest ) -> do
-            commit <- readCommit repo $ fromMaybe "HEAD" revision
-            tree <- getCommitTree commit
-            subtree <- maybe return (getSubtree (Just commit)) mbsub $ tree
+        jdirOther <- forM (jobOtherCheckout job) $ \( tree, JobCheckout mbsub dest ) -> do
+            subtree <- maybe return (getSubtree Nothing) mbsub $ tree
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
             return $ showTreeId (treeId tree)
 

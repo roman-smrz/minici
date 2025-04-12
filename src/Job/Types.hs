@@ -17,7 +17,7 @@ data Job' d = Job
     { jobId :: JobId' d
     , jobName :: JobName
     , jobContainingCheckout :: [ JobCheckout ]
-    , jobOtherCheckout :: [ ( JobRepo d, Maybe Text, JobCheckout ) ]
+    , jobOtherCheckout :: [ ( JobRepo d, JobCheckout ) ]
     , jobRecipe :: [ CreateProcess ]
     , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
     , jobUses :: [ ( JobName, ArtifactName ) ]
@@ -41,8 +41,8 @@ textJobName (JobName name) = name
 
 
 type family JobRepo d :: Type where
-    JobRepo Declared = RepoName
-    JobRepo Evaluated = Repo
+    JobRepo Declared = ( RepoName, Maybe Text )
+    JobRepo Evaluated = Tree
 
 data JobCheckout = JobCheckout
     { jcSubtree :: Maybe FilePath
@@ -71,8 +71,8 @@ newtype JobId = JobId [ JobIdPart ]
 
 data JobIdPart
     = JobIdName JobName
-    | JobIdCommit CommitId
-    | JobIdTree TreeId
+    | JobIdCommit (Maybe RepoName) CommitId
+    | JobIdTree (Maybe RepoName) TreeId
     deriving (Eq, Ord)
 
 newtype JobRef = JobRef [ Text ]
@@ -81,8 +81,8 @@ newtype JobRef = JobRef [ Text ]
 textJobIdPart :: JobIdPart -> Text
 textJobIdPart = \case
     JobIdName name -> textJobName name
-    JobIdCommit cid -> textCommitId cid
-    JobIdTree tid -> textTreeId tid
+    JobIdCommit _ cid -> textCommitId cid
+    JobIdTree _ tid -> textTreeId tid
 
 textJobId :: JobId -> Text
 textJobId (JobId ids) = T.intercalate "." $ map textJobIdPart ids
