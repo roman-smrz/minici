@@ -283,26 +283,23 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
 prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Maybe Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
 prepareJob dir mbCommit job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
-        jdirCommit <- case mbCommit of
+        case mbCommit of
             Just commit -> do
                 tree <- getCommitTree commit
                 forM_ (jobContainingCheckout job) $ \(JobCheckout mbsub dest) -> do
                     subtree <- maybe return (getSubtree mbCommit) mbsub $ tree
                     checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
-                return $ showTreeId (treeId tree) </> stringJobName (jobName job)
             Nothing -> do
                 when (not $ null $ jobContainingCheckout job) $ do
                     fail $ "no containing repository, can't do checkout"
-                return $ stringJobName (jobName job)
 
-        jdirOther <- forM (jobOtherCheckout job) $ \( tree, JobCheckout mbsub dest ) -> do
+        forM_ (jobOtherCheckout job) $ \( tree, JobCheckout mbsub dest ) -> do
             subtree <- maybe return (getSubtree Nothing) mbsub $ tree
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
-            return $ showTreeId (treeId tree)
 
-        let jdir = dir </> "jobs" </> jdirCommit </> joinPath jdirOther
+        let JobId jidParts = jobId job
+            jdir = dir </> "jobs" </> joinPath (map (T.unpack . textJobIdPart) (jidParts))
         liftIO $ createDirectoryIfMissing True jdir
-
         inner checkoutPath jdir
 
 runJob :: Job -> [ArtifactOutput] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
