@@ -291,14 +291,14 @@ prepareJob dir mbCommit job inner = do
             Just commit -> do
                 tree <- getCommitTree commit
                 forM_ (jobContainingCheckout job) $ \(JobCheckout mbsub dest) -> do
-                    subtree <- maybe return (getSubtree mbCommit) mbsub $ tree
+                    subtree <- maybe return (getSubtree mbCommit . makeRelative (treeSubdir tree)) mbsub $ tree
                     checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
             Nothing -> do
                 when (not $ null $ jobContainingCheckout job) $ do
                     fail $ "no containing repository, can't do checkout"
 
         forM_ (jobOtherCheckout job) $ \( tree, JobCheckout mbsub dest ) -> do
-            subtree <- maybe return (getSubtree Nothing) mbsub $ tree
+            subtree <- maybe return (getSubtree Nothing . makeRelative (treeSubdir tree)) mbsub $ tree
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
 
         let JobId jidParts = jobId job

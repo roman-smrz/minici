@@ -4,7 +4,7 @@ module Repo (
     RepoName(..), textRepoName, showRepoName,
     Commit, commitId,
     CommitId, textCommitId, showCommitId,
-    Tree, treeId, treeRepo,
+    Tree, treeId, treeRepo, treeSubdir,
     TreeId, textTreeId, showTreeId,
     Tag(..),
 
@@ -101,8 +101,9 @@ data CommitDetails = CommitDetails
     }
 
 data Tree = Tree
-    { treeRepo :: Repo
-    , treeId :: TreeId
+    { treeRepo :: Repo -- ^ Repository in which the tree is tored
+    , treeId :: TreeId -- ^ Tree ID
+    , treeSubdir :: FilePath -- ^ Subdirectory represented by this tree (from the repo root)
     }
 
 data Tag a = Tag
@@ -177,12 +178,15 @@ readCommit repo@GitRepo {..} ref = maybe (fail err) return =<< tryReadCommit rep
 tryReadCommit :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Maybe Commit)
 tryReadCommit repo ref = sequence . fmap (mkCommit repo . CommitId) =<< tryReadObjectId repo "commit" ref
 
-readTree :: (MonadIO m, MonadFail m) => Repo -> Text -> m Tree
-readTree repo@GitRepo {..} ref = maybe (fail err) return =<< tryReadTree repo ref
+readTree :: (MonadIO m, MonadFail m) => Repo -> FilePath -> Text -> m Tree
+readTree repo@GitRepo {..} subdir ref = maybe (fail err) return =<< tryReadTree repo subdir ref
     where err = "tree `" <> T.unpack ref <> "' not found in `" <> gitDir <> "'"
 
-tryReadTree :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Maybe Tree)
-tryReadTree repo ref = return . fmap (Tree repo . TreeId) =<< tryReadObjectId repo "tree" ref
+tryReadTree :: (MonadIO m, MonadFail m) => Repo -> FilePath -> Text -> m (Maybe Tree)
+tryReadTree treeRepo treeSubdir ref = do
+    fmap (fmap TreeId) (tryReadObjectId treeRepo "tree" ref) >>= \case
+        Just treeId -> return $ Just Tree {..}
+        Nothing -> return Nothing
 
 tryReadObjectId :: (MonadIO m, MonadFail m) => Repo -> Text -> Text -> m (Maybe ByteString)
 tryReadObjectId GitRepo {..} otype ref = do
@@ -255,6 +259,7 @@ getCommitDetails Commit {..} = do
 
                 Just treeId <- return $ TreeId . BC.pack <$> lookup "tree" info
                 let treeRepo = commitRepo
+                    treeSubdir = ""
                 let commitTree = Tree {..}
                 let commitTitle = T.pack title
                 let commitMessage = T.pack $ unlines $ dropWhile null message
@@ -275,11 +280,12 @@ getCommitMessage = fmap commitMessage . getCommitDetails
 getSubtree :: (MonadIO m, MonadFail m) => Maybe Commit -> FilePath -> Tree -> m Tree
 getSubtree mbCommit path tree = liftIO $ do
     let GitRepo {..} = treeRepo tree
-    readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", showTreeId (treeId tree) <> ":" <> path ] "" >>= \case
+    readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", showTreeId (treeId tree) <> ":./" <> path <> "/" ] "" >>= \case
         ( ExitSuccess, out, _ ) | tid : _ <- lines out -> do
             return Tree
                 { treeRepo = treeRepo tree
                 , treeId = TreeId (BC.pack tid)
+                , treeSubdir = treeSubdir tree </> path
                 }
         _ -> do
             fail $ "subtree `" <> path <> "' not found" <> maybe "" (("in revision `" <>) . (<> "'") . showCommitId . commitId) mbCommit

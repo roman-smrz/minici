@@ -65,7 +65,7 @@ collectOtherRepos decl = do
             [ if missingDefault then map (( Nothing, Nothing ), ) $ jobContainingCheckout decl else []
             , map (first (first Just)) $ jobOtherCheckout decl
             ]
-    let commonSubdir reporev = joinPath $ foldr commonPrefix [] $
+    let commonSubdir reporev = joinPath $ foldr1 commonPrefix $
             map (maybe [] splitDirectories . jcSubtree . snd) . filter ((reporev ==) . fst) $ checkouts
     return $ map (\r -> ( r, commonSubdir r )) . nub . map fst $ checkouts
 
@@ -74,20 +74,21 @@ evalJob :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJob -> Eval Job
 evalJob revisionOverrides decl = do
     EvalInput {..} <- ask
     otherRepos <- collectOtherRepos decl
-    otherRepoIds <- forM otherRepos $ \(( mbname, mbrev ), _ ) -> do
-        tree <- case lookup mbname revisionOverrides of
+    otherRepoTrees <- forM otherRepos $ \(( mbname, mbrev ), commonPath ) -> do
+        ( mbname, ) <$> case lookup mbname revisionOverrides of
             Just tree -> return tree
             Nothing -> case maybe eiContainingRepo (flip lookup eiOtherRepos) mbname of
-                Just repo -> getCommitTree =<< readCommit repo (fromMaybe "HEAD" mbrev)
+                Just repo -> do
+                    commit <- readCommit repo (fromMaybe "HEAD" mbrev)
+                    getSubtree (Just commit) commonPath =<< getCommitTree commit
                 Nothing -> throwError $ OtherEvalError $ "repo ‘" <> maybe "" textRepoName mbname <> "’ not defined"
-        return $ JobIdTree mbname $ treeId tree
-    otherCheckout <- forM (jobOtherCheckout decl) $ \(( name, revision ), checkout ) -> do
-        tree <- case lookup (Just name) revisionOverrides of
+
+    otherCheckout <- forM (jobOtherCheckout decl) $ \(( name, _ ), checkout ) -> do
+        (, checkout ) <$> case lookup (Just name) otherRepoTrees of
             Just tree -> return tree
-            Nothing -> case lookup name eiOtherRepos of
-                Just repo -> getCommitTree =<< readCommit repo (fromMaybe "HEAD" revision)
-                Nothing -> throwError $ OtherEvalError $ "repo ‘" <> textRepoName name <> "’ not defined"
-        return ( tree, checkout )
+            Nothing -> throwError $ OtherEvalError $ "repo ‘" <> textRepoName name <> "’ not defined"
+
+    let otherRepoIds = map (uncurry JobIdTree . fmap treeId) otherRepoTrees
     return Job
         { jobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId decl) : eiCurrentIdRev
         , jobName = jobName decl
@@ -124,8 +125,8 @@ canonicalJobName (r : rs) config = do
         Just djob -> do
             otherRepos <- collectOtherRepos djob
             ( overrides, rs' ) <- (\f -> foldM f ( [], rs ) otherRepos) $
-                \( overrides, crs ) (( mbname, _ ), _ ) -> do
-                    ( tree, crs' ) <- readTreeFromIdRef crs =<< evalRepo mbname
+                \( overrides, crs ) (( mbname, _ ), path ) -> do
+                    ( tree, crs' ) <- readTreeFromIdRef crs path =<< evalRepo mbname
                     return ( ( mbname, tree ) : overrides, crs' )
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
@@ -134,18 +135,18 @@ canonicalJobName (r : rs) config = do
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
 canonicalJobName [] _ = throwError $ OtherEvalError "expected job name"
 
-readTreeFromIdRef :: [ Text ] -> Repo -> Eval ( Tree, [ Text ] )
-readTreeFromIdRef (r : rs) repo = do
+readTreeFromIdRef :: [ Text ] -> FilePath -> Repo -> Eval ( Tree, [ Text ] )
+readTreeFromIdRef (r : rs) subdir repo = do
     tryReadCommit repo r >>= \case
-        Just commit -> (, rs) <$> getCommitTree commit
-        Nothing -> tryReadTree repo r >>= \case
+        Just commit -> return . (, rs) =<< getSubtree (Just commit) subdir =<< getCommitTree commit
+        Nothing -> tryReadTree repo subdir r >>= \case
             Just tree -> return ( tree, rs )
             Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
-readTreeFromIdRef [] _ = throwError $ OtherEvalError $ "expected commit or tree reference"
+readTreeFromIdRef [] _ _ = throwError $ OtherEvalError $ "expected commit or tree reference"
 
 canonicalCommitConfig :: [ Text ] -> Repo -> Eval JobId
 canonicalCommitConfig rs repo = do
-    ( tree, rs' ) <- readTreeFromIdRef rs repo
+    ( tree, rs' ) <- readTreeFromIdRef rs "" repo
     config <- either fail return =<< loadConfigForCommit tree
     local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing (treeId tree) : eiCurrentIdRev ei }) $
         canonicalJobName rs' config
