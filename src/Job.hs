@@ -38,8 +38,8 @@ import System.Posix.Signals
 import System.Process
 
 import Job.Types
+import Output
 import Repo
-import Terminal
 
 
 data JobOutput = JobOutput
@@ -61,7 +61,7 @@ data JobStatus a = JobQueued
                  | JobWaiting [JobName]
                  | JobRunning
                  | JobSkipped
-                 | JobError TerminalFootnote
+                 | JobError OutputFootnote
                  | JobFailed
                  | JobCancelled
                  | JobDone a
@@ -181,7 +181,7 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
                             writeTVar jmRunningTasks . M.delete tid =<< readTVar jmRunningTasks
 
 
-runJobs :: JobManager -> TerminalOutput -> Maybe Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
+runJobs :: JobManager -> Output -> Maybe Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
 runJobs mngr@JobManager {..} tout commit jobs = do
     results <- atomically $ do
         forM jobs $ \job -> do
@@ -197,12 +197,14 @@ runJobs mngr@JobManager {..} tout commit jobs = do
                     return statusVar
 
     forM_ results $ \( job, tid, outVar ) -> void $ forkIO $ do
-        let handler e = if
-                | Just JobCancelledException <- fromException e -> do
-                    atomically $ writeTVar outVar $ JobCancelled
-                | otherwise -> do
-                    footnote <- newFootnote tout $ T.pack $ displayException e
-                    atomically $ writeTVar outVar $ JobError footnote
+        let handler e = do
+                status <- if
+                    | Just JobCancelledException <- fromException e -> do
+                        return JobCancelled
+                    | otherwise -> do
+                        JobError <$> outputFootnote tout (T.pack $ displayException e)
+                atomically $ writeTVar outVar status
+                outputEvent tout $ JobFinished (jobId job) (textJobStatus status)
         handle handler $ do
             res <- runExceptT $ do
                 duplicate <- liftIO $ atomically $ do
@@ -217,6 +219,7 @@ runJobs mngr@JobManager {..} tout commit jobs = do
                         uses <- waitForUsedArtifacts tout job results outVar
                         runManagedJob mngr tid (return JobCancelled) $ do
                             liftIO $ atomically $ writeTVar outVar JobRunning
+                            liftIO $ outputEvent tout $ JobStarted (jobId job)
                             prepareJob jmDataDir commit job $ \checkoutPath jdir -> do
                                 updateStatusFile (jdir </> "status") outVar
                                 JobDone <$> runJob job uses checkoutPath jdir
@@ -237,17 +240,18 @@ runJobs mngr@JobManager {..} tout commit jobs = do
                         liftIO wait
 
             atomically $ writeTVar outVar $ either id id res
+            outputEvent tout $ JobFinished (jobId job) (textJobStatus $ either id id res)
     return $ map (\( job, _, var ) -> ( job, var )) results
 
 waitForUsedArtifacts :: (MonadIO m, MonadError (JobStatus JobOutput) m) =>
-    TerminalOutput ->
+    Output ->
     Job -> [ ( Job, TaskId, TVar (JobStatus JobOutput) ) ] -> TVar (JobStatus JobOutput) -> m [ ArtifactOutput ]
 waitForUsedArtifacts tout job results outVar = do
     origState <- liftIO $ atomically $ readTVar outVar
     ujobs <- forM (jobUses job) $ \(ujobName@(JobName tjobName), uartName) -> do
         case find (\( j, _, _ ) -> jobName j == ujobName) results of
             Just ( _, _, var ) -> return ( var, ( ujobName, uartName ))
-            Nothing -> throwError . JobError =<< liftIO (newFootnote tout $ "Job '" <> tjobName <> "' not found")
+            Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Job '" <> tjobName <> "' not found")
 
     let loop prev = do
             ustatuses <- atomically $ do
@@ -266,7 +270,7 @@ waitForUsedArtifacts tout job results outVar = do
         case ustatus of
             JobDone out -> case find ((==uartName) . aoutName) $ outArtifacts out of
                 Just art -> return art
-                Nothing -> throwError . JobError =<< liftIO (newFootnote tout $ "Artifact '" <> tjobName <> "." <> tartName <> "' not found")
+                Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact '" <> tjobName <> "." <> tartName <> "' not found")
             _ -> throwError JobSkipped
 
 updateStatusFile :: MonadIO m => FilePath -> TVar (JobStatus JobOutput) -> m ()

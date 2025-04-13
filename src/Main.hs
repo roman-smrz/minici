@@ -7,9 +7,11 @@ import Control.Monad.Reader
 import Data.ByteString.Lazy qualified as BL
 import Data.List
 import Data.List.NonEmpty qualified as NE
+import Data.Maybe
 import Data.Proxy
 import Data.Text qualified as T
 
+import System.Console.ANSI
 import System.Console.GetOpt
 import System.Directory
 import System.Environment
@@ -22,8 +24,8 @@ import Command.Checkout
 import Command.JobId
 import Command.Run
 import Config
+import Output
 import Repo
-import Terminal
 import Version
 
 data CmdlineOptions = CmdlineOptions
@@ -31,6 +33,7 @@ data CmdlineOptions = CmdlineOptions
     , optShowVersion :: Bool
     , optCommon :: CommonOptions
     , optStorage :: Maybe FilePath
+    , optOutput :: Maybe [ OutputType ]
     }
 
 defaultCmdlineOptions :: CmdlineOptions
@@ -39,6 +42,7 @@ defaultCmdlineOptions = CmdlineOptions
     , optShowVersion = False
     , optCommon = defaultCommonOptions
     , optStorage = Nothing
+    , optOutput = Nothing
     }
 
 options :: [ OptDescr (CmdlineOptions -> Except String CmdlineOptions) ]
@@ -66,6 +70,15 @@ options =
     , Option [] [ "storage" ]
         (ReqArg (\value opts -> return opts { optStorage = Just value }) "<path>")
         "set storage path"
+    , Option [] [ "terminal-output" ]
+        (NoArg $ \opts -> return opts { optOutput = Just $ TerminalOutput : fromMaybe [] (optOutput opts) })
+        "use terminal-style output (default if standard output is terminal)"
+    , Option [] [ "log-output" ]
+        (OptArg (\value opts -> return opts { optOutput = Just $ LogOutput (fromMaybe "-" value) : fromMaybe [] (optOutput opts) }) "<path>")
+        "use log-style output to <path> or standard output"
+    , Option [] [ "test-output" ]
+        (OptArg (\value opts -> return opts { optOutput = Just $ TestOutput (fromMaybe "-" value) : fromMaybe [] (optOutput opts) }) "<path>")
+        "use test-style output to <path> or standard output"
     ]
 
 data SomeCommandType = forall c. Command c => SC (Proxy c)
@@ -241,5 +254,10 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
 
     let ciOtherRepos = configRepos ++ cmdlineRepos
 
-    ciTerminalOutput <- initTerminalOutput
-    flip runReaderT CommandInput {..} exec
+    outputTypes <- case optOutput gopts of
+        Just types -> return types
+        Nothing -> hSupportsANSI stdout >>= return . \case
+            True -> [ TerminalOutput ]
+            False -> [ LogOutput "-" ]
+    withOutput outputTypes $ \ciOutput -> do
+        flip runReaderT CommandInput {..} exec

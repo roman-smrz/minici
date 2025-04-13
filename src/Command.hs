@@ -12,7 +12,7 @@ module Command (
     getRootPath, getJobRoot,
     getRepo, getDefaultRepo, tryGetDefaultRepo,
     getEvalInput, cmdEvalWith,
-    getTerminalOutput,
+    getOutput,
     getStorageDir,
 ) where
 
@@ -31,8 +31,8 @@ import System.IO
 
 import Config
 import Eval
+import Output
 import Repo
-import Terminal
 
 data CommonOptions = CommonOptions
     { optJobs :: Int
@@ -102,7 +102,7 @@ data CommandInput = CommandInput
     , ciJobRoot :: JobRoot
     , ciContainingRepo :: Maybe Repo
     , ciOtherRepos :: [ ( RepoName, Repo ) ]
-    , ciTerminalOutput :: TerminalOutput
+    , ciOutput :: Output
     , ciStorageDir :: FilePath
     }
 
@@ -143,8 +143,8 @@ cmdEvalWith :: (EvalInput -> EvalInput) -> Eval a -> CommandExec a
 cmdEvalWith f ev = do
     either (tfail . textEvalError) return =<< liftIO .runEval ev . f =<< getEvalInput
 
-getTerminalOutput :: CommandExec TerminalOutput
-getTerminalOutput = CommandExec (asks ciTerminalOutput)
+getOutput :: CommandExec Output
+getOutput = CommandExec (asks ciOutput)
 
 getStorageDir :: CommandExec FilePath
 getStorageDir = CommandExec (asks ciStorageDir)

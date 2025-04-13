@@ -10,6 +10,7 @@ import Control.Monad.IO.Class
 
 import Data.Either
 import Data.List
+import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
@@ -23,6 +24,7 @@ import Config
 import Eval
 import Job
 import Job.Types
+import Output
 import Repo
 import Terminal
 
@@ -231,7 +233,7 @@ watchTagSource pat = do
 cmdRun :: RunCommand -> CommandExec ()
 cmdRun (RunCommand RunOptions {..} args) = do
     CommonOptions {..} <- getCommonOptions
-    tout <- getTerminalOutput
+    output <- getOutput
     storageDir <- getStorageDir
 
     ( rangeOptions, jobOptions ) <- partitionEithers . concat <$> sequence
@@ -277,7 +279,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
         mngr <- newJobManager storageDir optJobs
 
         source <- mergeSources $ concat [ [ defaultSource, argumentJobs ], ranges, branches, tags ]
-        headerLine <- newLine tout ""
+        mbHeaderLine <- mapM (flip newLine "") (outputTerminal output)
 
         threadCount <- newTVarIO (0 :: Int)
         let changeCount f = atomically $ do
@@ -292,9 +294,10 @@ cmdRun (RunCommand RunOptions {..} args) = do
             loop pnames (Just ( jobset : rest, next )) = do
                 let names = nub $ (pnames ++) $ map jobName $ jobsetJobs jobset
                 when (names /= pnames) $ do
-                    redrawLine headerLine $ T.concat $
-                        T.replicate (8 + 50) " " :
-                        map ((" " <>) . fitToLength 7 . textJobName) names
+                    forM_ mbHeaderLine $ \headerLine -> do
+                        redrawLine headerLine $ T.concat $
+                            T.replicate (8 + 50) " " :
+                            map ((" " <>) . fitToLength 7 . textJobName) names
 
                 let commit = jobsetCommit jobset
                     shortCid = T.pack $ take 7 $ maybe (repeat ' ') (showCommitId . commitId) commit
@@ -302,16 +305,20 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
                 case jobsetJobsEither jobset of
                     Right jobs -> do
-                        outs <- runJobs mngr tout commit jobs
+                        outs <- runJobs mngr output commit jobs
                         let findJob name = snd <$> find ((name ==) . jobName . fst) outs
-                        line <- newLine tout ""
+                            statuses = map findJob names
+                        forM_ (outputTerminal output) $ \tout -> do
+                            line <- newLine tout ""
+                            void $ forkIO $ do
+                                displayStatusLine tout line shortCid (" " <> shortDesc) statuses
                         mask $ \restore -> do
                             changeCount (+ 1)
-                            void $ forkIO $ (>> changeCount (subtract 1)) $
-                                try @SomeException $ restore $ do
-                                    displayStatusLine tout line shortCid (" " <> shortDesc) $ map findJob names
+                            void $ forkIO $ do
+                                void $ try @SomeException $ restore $ waitForJobStatuses statuses
+                                changeCount (subtract 1)
                     Left err -> do
-                        void $ newLine tout $
+                        forM_ (outputTerminal output) $ flip newLine $
                             "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
                 loop names (Just ( rest, next ))
 
@@ -332,7 +339,7 @@ showStatus blink = \case
     JobWaiting uses -> "\ESC[94m~" <> fitToLength 6 (T.intercalate "," (map textJobName uses)) <> "\ESC[0m"
     JobSkipped      ->  "\ESC[0m-\ESC[0m      "
     JobRunning      -> "\ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m      "
-    JobError fnote  -> "\ESC[91m" <> fitToLength 7 ("!! [" <> T.pack (show (footnoteNumber fnote)) <> "]") <> "\ESC[0m"
+    JobError fnote  -> "\ESC[91m" <> fitToLength 7 ("!! [" <> T.pack (maybe "?" (show . tfNumber) (footnoteTerminal fnote)) <> "]") <> "\ESC[0m"
     JobFailed       -> "\ESC[91m✗\ESC[0m      "
     JobCancelled    ->  "\ESC[0mC\ESC[0m      "
     JobDone _       -> "\ESC[92m✓\ESC[0m      "
@@ -364,3 +371,10 @@ displayStatusLine tout line prefix1 prefix2 statuses = do
         if all (maybe True jobStatusFinished) ss
            then return ()
            else go cur
+
+waitForJobStatuses :: [ Maybe (TVar (JobStatus a)) ] -> IO ()
+waitForJobStatuses mbstatuses = do
+    let statuses = catMaybes mbstatuses
+    atomically $ do
+        ss <- mapM readTVar statuses
+        when (any (not . jobStatusFinished) ss) retry
