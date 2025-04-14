@@ -8,6 +8,7 @@ module Job (
     jobStatusFinished, jobStatusFailed,
     JobManager(..), newJobManager, cancelAllJobs,
     runJobs,
+    jobStorageSubdir,
 ) where
 
 import Control.Concurrent
@@ -284,6 +285,9 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
         T.writeFile path $ textJobStatus status <> "\n"
         when (not (jobStatusFinished status)) $ loop $ Just status
 
+jobStorageSubdir :: JobId -> FilePath
+jobStorageSubdir (JobId jidParts) = "jobs" </> joinPath (map (T.unpack . textJobIdPart) (jidParts))
+
 prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Maybe Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
 prepareJob dir mbCommit job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
@@ -301,8 +305,7 @@ prepareJob dir mbCommit job inner = do
             subtree <- maybe return (getSubtree Nothing . makeRelative (treeSubdir tree)) mbsub $ tree
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
 
-        let JobId jidParts = jobId job
-            jdir = dir </> "jobs" </> joinPath (map (T.unpack . textJobIdPart) (jidParts))
+        let jdir = dir </> jobStorageSubdir (jobId job)
         liftIO $ createDirectoryIfMissing True jdir
         inner checkoutPath jdir
 

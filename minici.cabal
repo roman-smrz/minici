@@ -50,6 +50,7 @@ executable minici
         Command
         Command.Checkout
         Command.JobId
+        Command.Log
         Command.Run
         Config
         Eval

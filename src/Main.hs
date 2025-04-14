@@ -22,6 +22,7 @@ import System.IO
 import Command
 import Command.Checkout
 import Command.JobId
+import Command.Log
 import Command.Run
 import Config
 import Output
@@ -88,6 +89,7 @@ commands =
     ( SC $ Proxy @RunCommand) NE.:|
     [ SC $ Proxy @CheckoutCommand
     , SC $ Proxy @JobIdCommand
+    , SC $ Proxy @LogCommand
     ]
 
 lookupCommand :: String -> Maybe SomeCommandType
