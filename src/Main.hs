@@ -100,9 +100,10 @@ lookupCommand name = find p commands
 main :: IO ()
 main = do
     args <- getArgs
+    let isPathArgument path = maybe False (/= '-') (listToMaybe path) && any isPathSeparator path
     let ( mbRootPath, args' ) = case args of
             (path : rest)
-                | any isPathSeparator path -> ( Just path, rest )
+                | isPathArgument path -> ( Just path, rest )
             _ -> ( Nothing, args )
 
     (opts, cmdargs) <- case getOpt RequireOrder options args' of
@@ -145,7 +146,7 @@ main = do
         ( Just path, _ )
             -> return ( Just path, cmdargs )
         ( _, path : rest )
-            | any isPathSeparator path
+            | isPathArgument path
             -> return ( Just path, rest )
         _   -> return ( Nothing , cmdargs )
 
