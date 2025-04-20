@@ -136,7 +136,7 @@ argumentJobSource names = do
             return ( config, Just commit )
 
     cidPart <- case jobsetCommit of
-        Just commit -> (: []) . JobIdTree Nothing . treeId <$> getCommitTree commit
+        Just commit -> (: []) . JobIdTree Nothing "" . treeId <$> getCommitTree commit
         Nothing -> return []
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
@@ -162,7 +162,7 @@ rangeSource base tip = do
     jobsets <- forM commits $ \commit -> do
         tree <- getCommitTree commit
         cmdEvalWith (\ei -> ei
-            { eiCurrentIdRev = JobIdTree Nothing (treeId tree) : eiCurrentIdRev ei
+            { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev ei
             }) . evalJobSet [] =<< loadJobSetFromRoot root commit
     oneshotJobSource jobsets
 
@@ -185,7 +185,7 @@ watchBranchSource branch = do
             jobsets <- forM commits $ \commit -> do
                 tree <- getCommitTree commit
                 let einput = einputBase
-                        { eiCurrentIdRev = JobIdTree Nothing (treeId tree) : eiCurrentIdRev einputBase
+                        { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
                         }
                 either (fail . T.unpack . textEvalError) return =<<
                     flip runEval einput . evalJobSet [] =<< loadJobSetFromRoot root commit
@@ -215,7 +215,7 @@ watchTagSource pat = do
               then do
                 tree <- getCommitTree $ tagObject tag
                 let einput = einputBase
-                        { eiCurrentIdRev = JobIdTree Nothing (treeId tree) : eiCurrentIdRev einputBase
+                        { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
                         }
                 jobset <- either (fail . T.unpack . textEvalError) return =<<
                     flip runEval einput . evalJobSet [] =<< loadJobSetFromRoot root (tagObject tag)

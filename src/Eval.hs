@@ -56,7 +56,7 @@ isDefaultRepoMissingInId djob
   where
     matches (JobIdName _) = False
     matches (JobIdCommit rname _) = isNothing rname
-    matches (JobIdTree rname _) = isNothing rname
+    matches (JobIdTree rname _ _) = isNothing rname
 
 collectOtherRepos :: DeclaredJob -> Eval [ (( Maybe RepoName, Maybe Text ), FilePath ) ]
 collectOtherRepos decl = do
@@ -75,7 +75,7 @@ evalJob revisionOverrides decl = do
     EvalInput {..} <- ask
     otherRepos <- collectOtherRepos decl
     otherRepoTrees <- forM otherRepos $ \(( mbname, mbrev ), commonPath ) -> do
-        ( mbname, ) <$> case lookup mbname revisionOverrides of
+        ( mbname, ) . ( commonPath, ) <$> case lookup mbname revisionOverrides of
             Just tree -> return tree
             Nothing -> case maybe eiContainingRepo (flip lookup eiOtherRepos) mbname of
                 Just repo -> do
@@ -84,11 +84,11 @@ evalJob revisionOverrides decl = do
                 Nothing -> throwError $ OtherEvalError $ "repo ‘" <> maybe "" textRepoName mbname <> "’ not defined"
 
     otherCheckout <- forM (jobOtherCheckout decl) $ \(( name, _ ), checkout ) -> do
-        (, checkout ) <$> case lookup (Just name) otherRepoTrees of
+        (, checkout ) <$> case snd <$> lookup (Just name) otherRepoTrees of
             Just tree -> return tree
             Nothing -> throwError $ OtherEvalError $ "repo ‘" <> textRepoName name <> "’ not defined"
 
-    let otherRepoIds = map (uncurry JobIdTree . fmap treeId) otherRepoTrees
+    let otherRepoIds = map (\( name, ( subtree, tree )) -> JobIdTree name subtree (treeId tree)) otherRepoTrees
     return Job
         { jobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId decl) : eiCurrentIdRev
         , jobName = jobName decl
@@ -148,7 +148,7 @@ canonicalCommitConfig :: [ Text ] -> Repo -> Eval JobId
 canonicalCommitConfig rs repo = do
     ( tree, rs' ) <- readTreeFromIdRef rs "" repo
     config <- either fail return =<< loadConfigForCommit tree
-    local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing (treeId tree) : eiCurrentIdRev ei }) $
+    local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing "" (treeId tree) : eiCurrentIdRev ei }) $
         canonicalJobName rs' config
 
 evalJobReference :: JobRef -> Eval JobId

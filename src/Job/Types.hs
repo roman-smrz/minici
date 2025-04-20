@@ -72,7 +72,7 @@ newtype JobId = JobId [ JobIdPart ]
 data JobIdPart
     = JobIdName JobName
     | JobIdCommit (Maybe RepoName) CommitId
-    | JobIdTree (Maybe RepoName) TreeId
+    | JobIdTree (Maybe RepoName) FilePath TreeId
     deriving (Eq, Ord)
 
 newtype JobRef = JobRef [ Text ]
@@ -82,7 +82,7 @@ textJobIdPart :: JobIdPart -> Text
 textJobIdPart = \case
     JobIdName name -> textJobName name
     JobIdCommit _ cid -> textCommitId cid
-    JobIdTree _ tid -> textTreeId tid
+    JobIdTree _ _ tid -> textTreeId tid
 
 textJobId :: JobId -> Text
 textJobId (JobId ids) = T.intercalate "." $ map textJobIdPart ids

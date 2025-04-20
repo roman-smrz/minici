@@ -6,12 +6,14 @@ module Output (
 
     withOutput,
     outputTerminal,
+    outputMessage,
     outputEvent,
     outputFootnote,
 ) where
 
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.IO.Class
 
 import Data.Text (Text)
 import Data.Text.IO qualified as T
@@ -76,8 +78,11 @@ outStrLn Output {..} h text
     | otherwise = do
         T.hPutStrLn h text
 
-outputEvent :: Output -> OutputEvent -> IO ()
-outputEvent out@Output {..} = \case
+outputMessage :: MonadIO m => Output -> Text -> m ()
+outputMessage out msg = outputEvent out (OutputMessage msg)
+
+outputEvent :: MonadIO m => Output -> OutputEvent -> m ()
+outputEvent out@Output {..} = liftIO . \case
     OutputMessage msg -> do
         forM_ outTerminal $ \term -> void $ newLine term msg
         forM_ outLogs $ \h -> outStrLn out h msg

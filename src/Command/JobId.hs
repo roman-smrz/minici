@@ -2,18 +2,26 @@ module Command.JobId (
     JobIdCommand,
 ) where
 
+import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
+
+import System.Console.GetOpt
 
 import Command
 import Eval
 import Job.Types
+import Output
+import Repo
 
 
-data JobIdCommand = JobIdCommand JobRef
+data JobIdCommand = JobIdCommand JobIdOptions JobRef
+
+data JobIdOptions = JobIdOptions
+    { joVerbose :: Bool
+    }
 
 instance Command JobIdCommand where
     commandName _ = "jobid"
@@ -22,17 +30,44 @@ instance Command JobIdCommand where
     type CommandArguments JobIdCommand = Text
 
     commandUsage _ = T.pack $ unlines $
-        [ "Usage: minici jobid <job ref>"
+        [ "Usage: minici jobid [<option>...] <job ref>"
         ]
 
-    commandInit _ _ = JobIdCommand . JobRef . T.splitOn "."
+    type CommandOptions JobIdCommand = JobIdOptions
+    defaultCommandOptions _ = JobIdOptions
+        { joVerbose = False
+        }
+
+    commandOptions _ =
+        [ Option [ 'v' ] [ "verbose" ]
+            (NoArg $ \opts -> opts { joVerbose = True })
+            "show detals of the ID"
+        ]
+
+    commandInit _ opts = JobIdCommand opts . JobRef . T.splitOn "."
     commandExec = cmdJobId
 
 
 cmdJobId :: JobIdCommand -> CommandExec ()
-cmdJobId (JobIdCommand ref) = do
+cmdJobId (JobIdCommand JobIdOptions {..} ref) = do
     einput <- getEvalInput
+    out <- getOutput
     JobId ids <- either (tfail . textEvalError) return =<<
         liftIO (runEval (evalJobReference ref) einput)
 
-    liftIO $ T.putStrLn $ textJobId $ JobId ids
+    outputMessage out $ textJobId $ JobId ids
+    when joVerbose $ do
+        outputMessage out ""
+        forM_ ids $ \case
+            JobIdName name -> outputMessage out $ textJobName name <> " (job name)"
+            JobIdCommit mbrepo cid -> outputMessage out $ T.concat
+                [ textCommitId cid, " (commit"
+                , maybe "" (\name -> " from ‘" <> textRepoName name <> "’ repo") mbrepo
+                , ")"
+                ]
+            JobIdTree mbrepo subtree cid -> outputMessage out $ T.concat
+                [ textTreeId cid, " (tree"
+                , maybe "" (\name -> " from ‘" <> textRepoName name <> "’ repo") mbrepo
+                , if not (null subtree) then ", subtree ‘" <> T.pack subtree <> "’" else ""
+                , ")"
+                ]
