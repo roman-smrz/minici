@@ -11,6 +11,7 @@ module Output (
     outputFootnote,
 ) where
 
+import Control.Concurrent.MVar
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -25,7 +26,8 @@ import Terminal
 
 
 data Output = Output
-    { outTerminal :: Maybe TerminalOutput
+    { outLock :: MVar ()
+    , outTerminal :: Maybe TerminalOutput
     , outLogs :: [ Handle ]
     , outTest :: [ Handle ]
     }
@@ -49,7 +51,9 @@ data OutputFootnote = OutputFootnote
 
 
 withOutput :: [ OutputType ] -> (Output -> IO a) -> IO a
-withOutput types inner = go types (Output Nothing [] [])
+withOutput types inner = do
+    lock <- newMVar ()
+    go types (Output lock Nothing [] [])
   where
     go (TerminalOutput : ts) out = do
         term <- initTerminalOutput
@@ -76,7 +80,8 @@ outStrLn Output {..} h text
     | Just tout <- outTerminal, terminalHandle tout == h = do
         void $ newLine tout text
     | otherwise = do
-        T.hPutStrLn h text
+        withMVar outLock $ \_ -> do
+            T.hPutStrLn h text
 
 outputMessage :: MonadIO m => Output -> Text -> m ()
 outputMessage out msg = outputEvent out (OutputMessage msg)
