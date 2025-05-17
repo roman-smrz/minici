@@ -1,0 +1,7 @@
+job success:
+  shell:
+    - "true"
+
+job failure:
+  shell:
+    - "false"

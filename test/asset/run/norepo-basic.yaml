@@ -1,0 +1,9 @@
+job success:
+  checkout: null
+  shell:
+    - "true"
+
+job failure:
+  checkout: null
+  shell:
+    - "false"

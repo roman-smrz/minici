@@ -1,0 +1,73 @@
+module run
+
+asset scripts:
+    path: ../asset/run
+
+def expect_result from p of job result result:
+    let dummy = job == ""
+    expect from p:
+        /job-start $job/
+        /job-finish $job ([a-z]+)/ capture done
+    guard (done == result)
+
+
+test RunWithouRepo:
+    node n
+    spawn on n as p args [ "${scripts.path}/norepo-basic.yaml", "run", "success", "failure" ]
+    expect_result from p:
+        of "success" result "done"
+        of "failure" result "failed"
+    expect /(.*)/ from p capture done
+    guard (done == "run-finish")
+
+
+test RunWithRepo:
+    node n
+    shell on n as git_init:
+        git -c init.defaultBranch=master init -q
+        git -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        git rev-parse HEAD
+        cp "${scripts.path}/repo-basic.yaml" minici.yaml
+        git add minici.yaml
+        git -c user.name=test -c user.email=test commit -q -m 'basic1'
+        git rev-parse HEAD^{tree}
+        cp "${scripts.path}/repo-basic2.yaml" minici.yaml
+        git add minici.yaml
+        git -c user.name=test -c user.email=test commit -q -m 'basic1'
+        git rev-parse HEAD
+        git rev-parse HEAD^{tree}
+
+    expect /([0-9a-f]+)/ from git_init capture c0
+    expect /([0-9a-f]+)/ from git_init capture t1
+    expect /([0-9a-f]+)/ from git_init capture c2
+    expect /([0-9a-f]+)/ from git_init capture t2
+
+    local:
+        spawn on n as p args [ "run", "--range=$c0..$c2" ]
+        expect_result from p:
+            of "$t1.success" result "done"
+            of "$t1.failure" result "failed"
+
+            of "$t2.success" result "done"
+            of "$t2.failure" result "failed"
+            of "$t2.third" result "done"
+            of "$t2.fourth" result "done"
+
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./minici.yaml", "run", "--range=$c0..$c2" ]
+        expect_result from p:
+            of "$t1.success" result "done"
+            of "$t1.failure" result "failed"
+            of "$t1.third" result "done"
+            of "$t1.fourth" result "done"
+
+            of "$t2.success" result "done"
+            of "$t2.failure" result "failed"
+            of "$t2.third" result "done"
+            of "$t2.fourth" result "done"
+
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")

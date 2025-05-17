@@ -326,6 +326,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
             loop [] =<< atomically (takeJobSource source)
             waitForJobs
         waitForJobs
+    outputEvent output $ TestMessage "run-finish"
 
 
 fitToLength :: Int -> Text -> Text

@@ -1,0 +1,15 @@
+job success:
+  shell:
+    - "true"
+
+job third:
+  shell:
+    - "true"
+
+job failure:
+  shell:
+    - "false"
+
+job fourth:
+  shell:
+    - "true"

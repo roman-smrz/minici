@@ -40,6 +40,7 @@ data OutputType
 
 data OutputEvent
     = OutputMessage Text
+    | TestMessage Text
     | JobStarted JobId
     | JobFinished JobId Text
 
@@ -92,6 +93,9 @@ outputEvent out@Output {..} = liftIO . \case
         forM_ outTerminal $ \term -> void $ newLine term msg
         forM_ outLogs $ \h -> outStrLn out h msg
         forM_ outTest $ \h -> outStrLn out h ("msg " <> msg)
+
+    TestMessage msg -> do
+        forM_ outTest $ \h -> outStrLn out h msg
 
     JobStarted jid -> do
         forM_ outLogs $ \h -> outStrLn out h ("Started " <> textJobId jid)
