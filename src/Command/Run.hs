@@ -320,6 +320,8 @@ cmdRun (RunCommand RunOptions {..} args) = do
                     Left err -> do
                         forM_ (outputTerminal output) $ flip newLine $
                             "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
+                        outputEvent output $ TestMessage $ "jobset-fail " <> T.pack err
+                        outputEvent output $ LogMessage $ "Jobset failed: " <> shortCid <> " " <> T.pack err
                 loop names (Just ( rest, next ))
 
         handle @SomeException (\_ -> cancelAllJobs mngr) $ do
