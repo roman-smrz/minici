@@ -10,6 +10,9 @@ def expect_result from p of job result result:
         /job-finish $job ([a-z]+)/ capture done
     guard (done == result)
 
+def expect_success from p of job:
+    expect_result from p of job result "done"
+
 
 test RunWithouRepo:
     node n
@@ -68,6 +71,67 @@ test RunWithRepo:
             of "$t2.failure" result "failed"
             of "$t2.third" result "done"
             of "$t2.fourth" result "done"
+
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+
+test RunExternalRepo:
+    node n
+    shell on n as git_init:
+        mkdir -p first/subdir
+        git -C first -c init.defaultBranch=master init -q
+        git -C first -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        touch first/subdir/file
+        git -C first add subdir
+        git -C first -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C first rev-parse HEAD^{tree}
+        git -C first rev-parse HEAD:subdir
+
+        mkdir -p second/sub
+        git -C second -c init.defaultBranch=master init -q
+        git -C second -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        touch second/sub/other
+        git -C second add sub
+        git -C second -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C second rev-parse HEAD^{tree}
+        git -C second rev-parse HEAD:sub
+
+        mkdir -p main
+        git -C main -c init.defaultBranch=master init -q
+        git -C main -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        cp "${scripts.path}/external.yaml" main/minici.yaml
+        git -C main add minici.yaml
+        git -C main -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C main rev-parse HEAD^{tree}
+
+    expect /([0-9a-f]+)/ from git_init capture first_root
+    expect /([0-9a-f]+)/ from git_init capture first_subtree
+    expect /([0-9a-f]+)/ from git_init capture second_root
+    expect /([0-9a-f]+)/ from git_init capture second_subtree
+    expect /([0-9a-f]+)/ from git_init capture main_root
+
+    # Explicit jobfile outside of any git repo
+    local:
+        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "${scripts.path}/external.yaml", "run", "single", "multiple", "combine" ]
+        for job in [ "single.$first_root", "multiple.$first_subtree.$second_subtree", "combine.$first_root.$second_subtree" ]:
+            expect_success from p of job
+
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    # Explicit jobfile within a git repo
+    local:
+        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "${scripts.path}/external.yaml", "run", "single" ]
+        expect_success from p of "single.$first_root"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    # Implicit jobfile within a git repo
+    local:
+        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "./main", "run", "HEAD^..HEAD" ]
+        for job in [ "single.$first_root", "multiple.$first_subtree.$second_subtree", "combine.$first_root.$second_subtree" ]:
+            expect_success from p of "$main_root.$job"
 
         expect /(.*)/ from p capture done
         guard (done == "run-finish")

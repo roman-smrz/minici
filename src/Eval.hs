@@ -58,22 +58,30 @@ isDefaultRepoMissingInId djob
     matches (JobIdCommit rname _) = isNothing rname
     matches (JobIdTree rname _ _) = isNothing rname
 
-collectOtherRepos :: DeclaredJob -> Eval [ (( Maybe RepoName, Maybe Text ), FilePath ) ]
-collectOtherRepos decl = do
+collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ (( Maybe RepoName, Maybe Text ), FilePath ) ]
+collectOtherRepos dset decl = do
+    let dependencies = map fst $ jobUses decl
+    dependencyRepos <- forM dependencies $ \name -> do
+        jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
+        job <- maybe (throwError $ OtherEvalError $ "job ‘" <> textJobName name <> "’ not found") return . find ((name ==) . jobName) $ jobs
+        return $ jobOtherCheckout job
+
     missingDefault <- isDefaultRepoMissingInId decl
+
     let checkouts = concat
             [ if missingDefault then map (( Nothing, Nothing ), ) $ jobContainingCheckout decl else []
             , map (first (first Just)) $ jobOtherCheckout decl
+            , map (first (first Just)) $ concat dependencyRepos
             ]
     let commonSubdir reporev = joinPath $ foldr1 commonPrefix $
             map (maybe [] splitDirectories . jcSubtree . snd) . filter ((reporev ==) . fst) $ checkouts
     return $ map (\r -> ( r, commonSubdir r )) . nub . map fst $ checkouts
 
 
-evalJob :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJob -> Eval Job
-evalJob revisionOverrides decl = do
+evalJob :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> DeclaredJob -> Eval Job
+evalJob revisionOverrides dset decl = do
     EvalInput {..} <- ask
-    otherRepos <- collectOtherRepos decl
+    otherRepos <- collectOtherRepos dset decl
     otherRepoTrees <- forM otherRepos $ \(( mbname, mbrev ), commonPath ) -> do
         ( mbname, ) . ( commonPath, ) <$> case lookup mbname revisionOverrides of
             Just tree -> return tree
@@ -101,7 +109,7 @@ evalJob revisionOverrides decl = do
 
 evalJobSet :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval JobSet
 evalJobSet revisionOverrides decl = do
-    jobs <- either (return . Left) (handleToEither . mapM (evalJob revisionOverrides)) $ jobsetJobsEither decl
+    jobs <- either (return . Left) (handleToEither . mapM (evalJob revisionOverrides decl)) $ jobsetJobsEither decl
     return JobSet
         { jobsetCommit = jobsetCommit decl
         , jobsetJobsEither = jobs
@@ -121,9 +129,10 @@ evalRepo (Just name) = asks (lookup name . eiOtherRepos) >>= \case
 canonicalJobName :: [ Text ] -> Config -> Eval JobId
 canonicalJobName (r : rs) config = do
     let name = JobName r
+        dset = JobSet Nothing $ Right $ configJobs config
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
-            otherRepos <- collectOtherRepos djob
+            otherRepos <- collectOtherRepos dset djob
             ( overrides, rs' ) <- (\f -> foldM f ( [], rs ) otherRepos) $
                 \( overrides, crs ) (( mbname, _ ), path ) -> do
                     ( tree, crs' ) <- readTreeFromIdRef crs path =<< evalRepo mbname
@@ -131,7 +140,7 @@ canonicalJobName (r : rs) config = do
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
                 _ -> return ()
-            jobId <$> evalJob overrides djob
+            jobId <$> evalJob overrides dset djob
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
 canonicalJobName [] _ = throwError $ OtherEvalError "expected job name"
 

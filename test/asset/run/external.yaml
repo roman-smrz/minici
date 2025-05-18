@@ -1,0 +1,42 @@
+repo first:
+  path: ../first
+
+repo second:
+  path: ../second
+
+
+job single:
+  checkout:
+    repo: first
+    dest: first
+
+  shell:
+    - tar czf first.tar.gz first
+
+  artifact tarball:
+    path: ./first.tar.gz
+
+job multiple:
+  checkout:
+    - repo: first
+      dest: first-subdir
+      subtree: subdir
+    - repo: second
+      dest: second-subdir
+      subtree: sub
+
+  shell:
+    - tar czf pack.tar.gz first-subdir second-subdir
+
+  artifact tarball:
+    path: ./pack.tar.gz
+
+job combine:
+  checkout: null
+
+  shell:
+    - ls
+
+  uses:
+    - single.tarball
+    - multiple.tarball
