@@ -288,7 +288,7 @@ getSubtree mbCommit path tree = liftIO $ do
                 , treeSubdir = treeSubdir tree </> path
                 }
         _ -> do
-            fail $ "subtree `" <> path <> "' not found" <> maybe "" (("in revision `" <>) . (<> "'") . showCommitId . commitId) mbCommit
+            fail $ "subtree ‘" <> path <> "’ not found" <> maybe "" ((" in revision ‘" <>) . (<> "’") . showCommitId . commitId) mbCommit
 
 
 checkoutAt :: (MonadIO m, MonadFail m) => Tree -> FilePath -> m ()
