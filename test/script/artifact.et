@@ -1,0 +1,27 @@
+module artifact
+
+asset scripts:
+    path: ../asset/artifact
+
+
+test ExtractArtifact:
+    node n
+    local:
+        spawn on n as p args [ "${scripts.path}/minici.yaml", "run", "generate" ]
+        expect /job-finish generate done/ from p
+
+    local:
+        spawn on n as p args [ "${scripts.path}/minici.yaml", "extract", "generate.first", "extracted" ]
+    local:
+        shell on n as s:
+            cat ./extracted
+        expect /content 1/ from s
+
+    local:
+        spawn on n as p args [ "${scripts.path}/minici.yaml", "extract", "generate.second", "generate.third", "." ]
+    local:
+        shell on n as s:
+            cat ./f2
+            cat ./f3
+        expect /content 2/ from s
+        expect /content 3/ from s

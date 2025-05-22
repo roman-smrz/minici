@@ -1,0 +1,17 @@
+job generate:
+  checkout: null
+
+  shell:
+    - echo "content 1" > f1
+    - mkdir subdir
+    - echo "content 2" > subdir/f2
+    - echo "content 3" > f3
+
+  artifact first:
+    path: f1
+
+  artifact second:
+    path: subdir/f2
+
+  artifact third:
+    path: f3

@@ -21,6 +21,7 @@ import System.IO
 
 import Command
 import Command.Checkout
+import Command.Extract
 import Command.JobId
 import Command.Log
 import Command.Run
@@ -88,6 +89,7 @@ commands :: NE.NonEmpty SomeCommandType
 commands =
     ( SC $ Proxy @RunCommand) NE.:|
     [ SC $ Proxy @CheckoutCommand
+    , SC $ Proxy @ExtractCommand
     , SC $ Proxy @JobIdCommand
     , SC $ Proxy @LogCommand
     ]

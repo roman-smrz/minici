@@ -49,6 +49,7 @@ executable minici
     other-modules:
         Command
         Command.Checkout
+        Command.Extract
         Command.JobId
         Command.Log
         Command.Run
