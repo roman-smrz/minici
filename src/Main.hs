@@ -66,7 +66,7 @@ options =
                         { optRepo = DeclaredRepo (RepoName $ T.pack repo) path : optRepo (optCommon opts)
                         }
                     }
-                _ -> throwError $ "--repo: invalid value `" <> value <> "'"
+                _ -> throwError $ "--repo: invalid value ‘" <> value <> "’"
         ) "<repo>:<path>")
         ("override or declare repo path")
     , Option [] [ "storage" ]
@@ -118,10 +118,10 @@ main = do
             case foldl merge ( [], defaultCmdlineOptions ) os of
                 ( [], opts ) -> return ( opts , cmdargs )
                 ( errs, _ ) -> do
-                    hPutStrLn stderr $ unlines (reverse errs) <> "Try `minici --help' for more information."
+                    hPutStrLn stderr $ unlines (reverse errs) <> "Try ‘minici --help’ for more information."
                     exitFailure
         (_, _, errs) -> do
-            hPutStrLn stderr $ concat errs <> "Try `minici --help' for more information."
+            hPutStrLn stderr $ concat errs <> "Try ‘minici --help’ for more information."
             exitFailure
 
     when (optShowHelp opts) $ do
@@ -159,8 +159,8 @@ main = do
             | Just nc <- lookupCommand cname -> return (nc, cargs)
             | otherwise -> do
                 hPutStr stderr $ unlines
-                    [ "Unknown command `" <> cname <> "'."
-                    , "Try `minici --help' for more information."
+                    [ "Unknown command ‘" <> cname <> "’."
+                    , "Try ‘minici --help’ for more information."
                     ]
                 exitFailure
 
@@ -217,7 +217,7 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
 
     let ciOptions = optCommon gopts
     let exitWithErrors errs = do
-            hPutStrLn stderr $ concat errs <> "Try `minici " <> commandName tproxy <> " --help' for more information."
+            hPutStrLn stderr $ concat errs <> "Try ‘minici " <> commandName tproxy <> " --help’ for more information."
             exitFailure
 
     (opts, cmdargs) <- case getOpt Permute (fullCommandOptions tproxy) args of
@@ -245,7 +245,7 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
                 Just repo -> return ( repoName decl, repo )
                 Nothing -> do
                     absPath <- makeAbsolute path
-                    hPutStrLn stderr $ "Failed to open repo `" <> showRepoName (repoName decl) <> "' at " <> repoPath decl <> " (" <> absPath <> ")"
+                    hPutStrLn stderr $ "Failed to open repo ‘" <> showRepoName (repoName decl) <> "’ at " <> repoPath decl <> " (" <> absPath <> ")"
                     exitFailure
 
     cmdlineRepos <- forM (optRepo ciOptions) (openDeclaredRepo "")

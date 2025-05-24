@@ -119,7 +119,7 @@ getRepo :: RepoName -> CommandExec Repo
 getRepo name = do
     CommandExec (asks (lookup name . ciOtherRepos)) >>= \case
         Just repo -> return repo
-        Nothing -> tfail $ "repo `" <> textRepoName name <> "' not declared"
+        Nothing -> tfail $ "repo ‘" <> textRepoName name <> "’ not declared"
 
 getDefaultRepo :: CommandExec Repo
 getDefaultRepo = do
@@ -141,7 +141,7 @@ getEvalInput = CommandExec $ do
 
 cmdEvalWith :: (EvalInput -> EvalInput) -> Eval a -> CommandExec a
 cmdEvalWith f ev = do
-    either (tfail . textEvalError) return =<< liftIO .runEval ev . f =<< getEvalInput
+    either (tfail . textEvalError) return =<< liftIO . runEval ev . f =<< getEvalInput
 
 getOutput :: CommandExec Output
 getOutput = CommandExec (asks ciOutput)

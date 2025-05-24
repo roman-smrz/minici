@@ -337,8 +337,8 @@ runJob job uses checkoutPath jdir = do
                 [ path ] -> return path
                 found -> do
                     liftIO $ hPutStrLn logs $
-                        (if null found then "no file" else "multiple files") <> " found matching pattern `" <>
-                        decompile pathPattern <> "' for artifact `" <> T.unpack tname <> "'"
+                        (if null found then "no file" else "multiple files") <> " found matching pattern ‘" <>
+                        decompile pathPattern <> "’ for artifact ‘" <> T.unpack tname <> "’"
                     throwError JobFailed
             let target = adir </> T.unpack tname </> takeFileName path
             liftIO $ do

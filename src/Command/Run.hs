@@ -141,7 +141,7 @@ argumentJobSource names = do
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
-            Nothing -> tfail $ "job `" <> textJobName name <> "' not found"
+            Nothing -> tfail $ "job ‘" <> textJobName name <> "’ not found"
     oneshotJobSource . (: []) =<<
         cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei })
         (evalJobSet [] JobSet {..})
@@ -199,7 +199,7 @@ watchBranchSource branch = do
             Just commit ->
                 void $ forkIO $ go commit tmvar
             Nothing -> do
-                T.hPutStrLn stderr $ "Branch `" <> branch <> "' not found"
+                T.hPutStrLn stderr $ "Branch ‘" <> branch <> "’ not found"
                 atomically $ putTMVar tmvar Nothing
         return $ JobSource tmvar
 
