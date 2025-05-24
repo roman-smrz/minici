@@ -78,7 +78,7 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
             _     -> return False
 
     forM_ extractArtifacts $ \( ref, ArtifactName aname ) -> do
-        jid@(JobId ids) <- either (tfail . textEvalError) return =<<
+        jid@(JobId ids) <- either (tfail . textEvalError) (return . jobId) =<<
             liftIO (runEval (evalJobReference ref) einput)
 
         let jdir = joinPath $ (storageDir :) $ ("jobs" :) $ map (T.unpack . textJobIdPart) ids

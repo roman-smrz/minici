@@ -37,7 +37,7 @@ instance Command LogCommand where
 cmdLog :: LogCommand -> CommandExec ()
 cmdLog (LogCommand ref) = do
     einput <- getEvalInput
-    jid <- either (tfail . textEvalError) return =<<
+    jid <- either (tfail . textEvalError) (return . jobId) =<<
         liftIO (runEval (evalJobReference ref) einput)
     output <- getOutput
     storageDir <- getStorageDir

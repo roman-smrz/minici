@@ -135,16 +135,17 @@ argumentJobSource names = do
             config <- either fail return =<< loadConfigForCommit =<< getCommitTree commit
             return ( config, Just commit )
 
-    cidPart <- case jobsetCommit of
-        Just commit -> (: []) . JobIdTree Nothing "" . treeId <$> getCommitTree commit
+    jobtree <- case jobsetCommit of
+        Just commit -> (: []) <$> getCommitTree commit
         Nothing -> return []
+    let cidPart = map (JobIdTree Nothing "" . treeId) jobtree
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
             Nothing -> tfail $ "job ‘" <> textJobName name <> "’ not found"
     oneshotJobSource . (: []) =<<
         cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei })
-        (evalJobSet [] JobSet {..})
+        (evalJobSet (map ( Nothing, ) jobtree) JobSet {..})
 
 loadJobSetFromRoot :: (MonadIO m, MonadFail m) => JobRoot -> Commit -> m DeclaredJobSet
 loadJobSetFromRoot root commit = case root of
@@ -163,7 +164,7 @@ rangeSource base tip = do
         tree <- getCommitTree commit
         cmdEvalWith (\ei -> ei
             { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev ei
-            }) . evalJobSet [] =<< loadJobSetFromRoot root commit
+            }) . evalJobSet [ ( Nothing, tree) ] =<< loadJobSetFromRoot root commit
     oneshotJobSource jobsets
 
 
@@ -188,7 +189,7 @@ watchBranchSource branch = do
                         { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
                         }
                 either (fail . T.unpack . textEvalError) return =<<
-                    flip runEval einput . evalJobSet [] =<< loadJobSetFromRoot root commit
+                    flip runEval einput . evalJobSet [ ( Nothing, tree ) ] =<< loadJobSetFromRoot root commit
             nextvar <- newEmptyTMVarIO
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
             go cur nextvar
@@ -218,7 +219,7 @@ watchTagSource pat = do
                         { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
                         }
                 jobset <- either (fail . T.unpack . textEvalError) return =<<
-                    flip runEval einput . evalJobSet [] =<< loadJobSetFromRoot root (tagObject tag)
+                    flip runEval einput . evalJobSet [ ( Nothing, tree ) ] =<< loadJobSetFromRoot root (tagObject tag)
                 nextvar <- newEmptyTMVarIO
                 atomically $ putTMVar tmvar $ Just ( [ jobset ], JobSource nextvar )
                 go nextvar
@@ -305,7 +306,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
                 case jobsetJobsEither jobset of
                     Right jobs -> do
-                        outs <- runJobs mngr output commit jobs
+                        outs <- runJobs mngr output jobs
                         let findJob name = snd <$> find ((name ==) . jobName . fst) outs
                             statuses = map findJob names
                         forM_ (outputTerminal output) $ \tout -> do

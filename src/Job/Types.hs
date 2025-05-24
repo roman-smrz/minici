@@ -16,8 +16,7 @@ data Evaluated
 data Job' d = Job
     { jobId :: JobId' d
     , jobName :: JobName
-    , jobContainingCheckout :: [ JobCheckout ]
-    , jobOtherCheckout :: [ ( JobRepo d, JobCheckout ) ]
+    , jobCheckout :: [ JobCheckout d ]
     , jobRecipe :: [ CreateProcess ]
     , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
     , jobUses :: [ ( JobName, ArtifactName ) ]
@@ -41,11 +40,12 @@ textJobName (JobName name) = name
 
 
 type family JobRepo d :: Type where
-    JobRepo Declared = ( RepoName, Maybe Text )
+    JobRepo Declared = Maybe ( RepoName, Maybe Text )
     JobRepo Evaluated = Tree
 
-data JobCheckout = JobCheckout
-    { jcSubtree :: Maybe FilePath
+data JobCheckout d = JobCheckout
+    { jcRepo :: JobRepo d
+    , jcSubtree :: Maybe FilePath
     , jcDestination :: Maybe FilePath
     }
 

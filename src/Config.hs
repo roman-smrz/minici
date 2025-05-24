@@ -13,7 +13,6 @@ import Control.Monad.Combinators
 import Control.Monad.IO.Class
 
 import Data.ByteString.Lazy qualified as BS
-import Data.Either
 import Data.List
 import Data.Map qualified as M
 import Data.Maybe
@@ -79,11 +78,11 @@ parseJob :: Text -> Node Pos -> Parser DeclaredJob
 parseJob name node = flip (withMap "Job") node $ \j -> do
     let jobName = JobName name
         jobId = jobName
-    ( jobContainingCheckout, jobOtherCheckout ) <- partitionEithers <$> choice
+    jobCheckout <- choice
         [ parseSingleCheckout =<< j .: "checkout"
         , parseMultipleCheckouts =<< j .: "checkout"
         , withNull "no checkout" (return []) =<< j .: "checkout"
-        , return [ Left $ JobCheckout Nothing Nothing ]
+        , return [ JobCheckout Nothing Nothing Nothing ]
         ]
     jobRecipe <- choice
         [ cabalJob =<< j .: "cabal"
@@ -93,18 +92,18 @@ parseJob name node = flip (withMap "Job") node $ \j -> do
     jobUses <- maybe (return []) parseUses =<< j .:? "uses"
     return Job {..}
 
-parseSingleCheckout :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, JobCheckout ) ]
+parseSingleCheckout :: Node Pos -> Parser [ JobCheckout Declared ]
 parseSingleCheckout = withMap "checkout definition" $ \m -> do
     jcSubtree <- fmap T.unpack <$> m .:? "subtree"
     jcDestination <- fmap T.unpack <$> m .:? "dest"
-    let checkout = JobCheckout {..}
-    m .:? "repo" >>= \case
-        Nothing -> return [ Left checkout ]
+    jcRepo <- m .:? "repo" >>= \case
+        Nothing -> return Nothing
         Just name -> do
             revision <- m .:? "revision"
-            return [ Right (( RepoName name, revision ), checkout ) ]
+            return $ Just ( RepoName name, revision )
+    return [ JobCheckout {..} ]
 
-parseMultipleCheckouts :: Node Pos -> Parser [ Either JobCheckout ( JobRepo Declared, JobCheckout ) ]
+parseMultipleCheckouts :: Node Pos -> Parser [ JobCheckout Declared ]
 parseMultipleCheckouts = withSeq "checkout definitions" $ fmap concat . mapM parseSingleCheckout
 
 cabalJob :: Node Pos -> Parser [CreateProcess]

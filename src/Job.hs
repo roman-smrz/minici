@@ -182,8 +182,8 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
                             writeTVar jmRunningTasks . M.delete tid =<< readTVar jmRunningTasks
 
 
-runJobs :: JobManager -> Output -> Maybe Commit -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
-runJobs mngr@JobManager {..} tout commit jobs = do
+runJobs :: JobManager -> Output -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
+runJobs mngr@JobManager {..} tout jobs = do
     results <- atomically $ do
         forM jobs $ \job -> do
             tid <- reserveTaskId mngr
@@ -221,7 +221,7 @@ runJobs mngr@JobManager {..} tout commit jobs = do
                         runManagedJob mngr tid (return JobCancelled) $ do
                             liftIO $ atomically $ writeTVar outVar JobRunning
                             liftIO $ outputEvent tout $ JobStarted (jobId job)
-                            prepareJob jmDataDir commit job $ \checkoutPath jdir -> do
+                            prepareJob jmDataDir job $ \checkoutPath jdir -> do
                                 updateStatusFile (jdir </> "status") outVar
                                 JobDone <$> runJob job uses checkoutPath jdir
 
@@ -288,20 +288,10 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
 jobStorageSubdir :: JobId -> FilePath
 jobStorageSubdir (JobId jidParts) = "jobs" </> joinPath (map (T.unpack . textJobIdPart) (jidParts))
 
-prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Maybe Commit -> Job -> (FilePath -> FilePath -> m a) -> m a
-prepareJob dir mbCommit job inner = do
+prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Job -> (FilePath -> FilePath -> m a) -> m a
+prepareJob dir job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
-        case mbCommit of
-            Just commit -> do
-                tree <- getCommitTree commit
-                forM_ (jobContainingCheckout job) $ \(JobCheckout mbsub dest) -> do
-                    subtree <- maybe return (getSubtree mbCommit . makeRelative (treeSubdir tree)) mbsub $ tree
-                    checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
-            Nothing -> do
-                when (not $ null $ jobContainingCheckout job) $ do
-                    fail $ "no containing repository, can't do checkout"
-
-        forM_ (jobOtherCheckout job) $ \( tree, JobCheckout mbsub dest ) -> do
+        forM_ (jobCheckout job) $ \(JobCheckout tree mbsub dest) -> do
             subtree <- maybe return (getSubtree Nothing . makeRelative (treeSubdir tree)) mbsub $ tree
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
 
