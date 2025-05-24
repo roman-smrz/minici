@@ -44,7 +44,7 @@ instance Command JobIdCommand where
             "show detals of the ID"
         ]
 
-    commandInit _ opts = JobIdCommand opts . JobRef . T.splitOn "."
+    commandInit _ opts = JobIdCommand opts . parseJobRef
     commandExec = cmdJobId
 
 

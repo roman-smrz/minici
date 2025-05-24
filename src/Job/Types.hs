@@ -86,3 +86,17 @@ textJobIdPart = \case
 
 textJobId :: JobId -> Text
 textJobId (JobId ids) = T.intercalate "." $ map textJobIdPart ids
+
+parseJobRef :: Text -> JobRef
+parseJobRef = JobRef . go 0 ""
+  where
+    go :: Int -> Text -> Text -> [ Text ]
+    go plevel cur s = do
+        let bchars | plevel > 0 = [ '(', ')' ]
+                   | otherwise  = [ '.', '(', ')' ]
+        let ( part, rest ) = T.break (`elem` bchars) s
+        case T.uncons rest of
+            Just ( '.', rest' ) -> (cur <> part) : go plevel "" rest'
+            Just ( '(', rest' ) -> go (plevel + 1) (cur <> part) rest'
+            Just ( ')', rest' ) -> go (plevel - 1) (cur <> part) rest'
+            _                   -> [ cur <> part ]

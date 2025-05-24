@@ -30,7 +30,7 @@ instance Command LogCommand where
         [ "Usage: minici log <job ref>"
         ]
 
-    commandInit _ _ = LogCommand . JobRef . T.splitOn "."
+    commandInit _ _ = LogCommand . parseJobRef
     commandExec = cmdLog
 
 

@@ -31,9 +31,10 @@ instance CommandArgumentsType ExtractArguments where
             extractDestination <- return (last args)
             return ExtractArguments {..}
           where
-            toArtifactRef tref = case T.splitOn "." (T.pack tref) of
-                parts@(_:_:_) -> return ( JobRef (init parts), ArtifactName (last parts) )
-                _             -> throwError $ "too few parts in artifact ref ‘" <> tref <> "’"
+            toArtifactRef tref = case T.breakOnEnd "." (T.pack tref) of
+                (jobref', aref) | Just ( jobref, '.' ) <- T.unsnoc jobref'
+                    -> return ( parseJobRef jobref, ArtifactName aref )
+                _   -> throwError $ "too few parts in artifact ref ‘" <> tref <> "’"
         _ -> throwError "too few arguments"
 
 data ExtractOptions = ExtractOptions
