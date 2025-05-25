@@ -147,6 +147,12 @@ argumentJobSource names = do
         cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei })
         (evalJobSet (map ( Nothing, ) jobtree) JobSet {..})
 
+refJobSource :: [ JobRef ] -> CommandExec JobSource
+refJobSource [] = emptyJobSource
+refJobSource refs = do
+    jobs <- cmdEvalWith id $ mapM evalJobReference refs
+    oneshotJobSource . map (JobSet Nothing . Right . (: [])) $ jobs
+
 loadJobSetFromRoot :: (MonadIO m, MonadFail m) => JobRoot -> Commit -> m DeclaredJobSet
 loadJobSetFromRoot root commit = case root of
     JobRootRepo _ -> loadJobSetForCommit commit
@@ -248,11 +254,14 @@ cmdRun (RunCommand RunOptions {..} args) = do
             [ base, tip ]
                 | not (T.null base) && not (T.null tip)
                 -> return $ Left ( Just base, tip )
-            [ _ ] -> return $ Right $ JobName arg
+            [ _ ] -> return $ Right arg
             _ -> tfail $ "invalid argument: " <> arg
         ]
 
-    argumentJobs <- argumentJobSource jobOptions
+    let ( refOptions, nameOptions ) = partition (T.elem '.') jobOptions
+
+    argumentJobs <- argumentJobSource $ map JobName nameOptions
+    refJobs <- refJobSource $ map parseJobRef refOptions
 
     defaultSource <- getJobRoot >>= \case
         _ | not (null rangeOptions && null roNewCommitsOn && null roNewTags && null jobOptions) -> do
@@ -279,7 +288,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
     liftIO $ do
         mngr <- newJobManager storageDir optJobs
 
-        source <- mergeSources $ concat [ [ defaultSource, argumentJobs ], ranges, branches, tags ]
+        source <- mergeSources $ concat [ [ defaultSource, argumentJobs, refJobs ], ranges, branches, tags ]
         mbHeaderLine <- mapM (flip newLine "") (outputTerminal output)
 
         threadCount <- newTVarIO (0 :: Int)

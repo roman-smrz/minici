@@ -1,0 +1,7 @@
+job build:
+  shell:
+    - ls subdir | sed -e ':a;N;s/\n/ /;ta' > list
+    - echo >> list
+
+  artifact out:
+    path: list
