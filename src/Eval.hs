@@ -119,7 +119,7 @@ evalJobSet revisionOverrides decl = do
         , jobsetJobsEither = jobs
         }
   where
-    handleToEither = handleError (return . Left . T.unpack . textEvalError) . fmap Right
+    handleToEither = flip catchError (return . Left . T.unpack . textEvalError) . fmap Right
 
 evalRepo :: Maybe RepoName -> Eval Repo
 evalRepo Nothing = asks eiContainingRepo >>= \case
