@@ -1,5 +1,12 @@
 # Revision history for MiniCI
 
+## 0.1.7 -- 2025-05-28
+
+* Added `log` command to show job log
+* Added `extract` command to extract artifacts
+* Added `--terminal-output` and `--log-output` options to set output style
+* Run jobs by specifying full job id or reference
+
 ## 0.1.6 -- 2025-03-30
 
 * Added `jobid` command resolving job reference to canonical ID
