@@ -1,0 +1,65 @@
+test RepoSubtree:
+    node n
+    shell on n as git_init:
+        mkdir -p work
+        git -C work -c init.defaultBranch=master init -q
+        git -C work -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+
+        mkdir -p work/first/second
+        touch work/first/second/file
+        git -C work add first
+        git -C work -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C work rev-parse HEAD^{commit}
+        git -C work rev-parse HEAD^{tree}
+        git -C work rev-parse HEAD:first
+        git -C work rev-parse HEAD:first/second
+
+    expect /([0-9a-f]+)/ from git_init capture commit
+    expect /([0-9a-f]+)/ from git_init capture root
+    expect /([0-9a-f]+)/ from git_init capture sub1
+    expect /([0-9a-f]+)/ from git_init capture sub2
+
+    for repo in [ "./work" ]:
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "" ]
+            expect from p /msg $root/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "." ]
+            expect from p /msg $root/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "/" ]
+            expect from p /msg $root/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "first" ]
+            expect from p /msg $sub1/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "./first" ]
+            expect from p /msg $sub1/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "/first" ]
+            expect from p /msg $sub1/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "./first/second" ]
+            expect from p /msg $sub2/
+
+        local:
+            spawn as p on n args [ repo, "subtree", commit, "/first/second" ]
+            expect from p /msg $sub2/
+
+        local:
+            spawn as p on n args [ repo, "subtree", "$sub1(first)", "second" ]
+            expect from p /msg $sub2/
+
+        local:
+            spawn as p on n args [ repo, "subtree", "$sub1(first)", "./second" ]
+            expect from p /msg $sub2/
+
+        local:
+            spawn as p on n args [ repo, "subtree", "$sub1(first)", "/second/" ]
+            expect from p /msg $sub2/

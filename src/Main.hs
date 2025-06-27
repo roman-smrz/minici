@@ -25,6 +25,7 @@ import Command.Extract
 import Command.JobId
 import Command.Log
 import Command.Run
+import Command.Subtree
 import Config
 import Output
 import Repo
@@ -92,6 +93,7 @@ commands =
     , SC $ Proxy @ExtractCommand
     , SC $ Proxy @JobIdCommand
     , SC $ Proxy @LogCommand
+    , SC $ Proxy @SubtreeCommand
     ]
 
 lookupCommand :: String -> Maybe SomeCommandType
