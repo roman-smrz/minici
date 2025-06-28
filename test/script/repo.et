@@ -14,52 +14,76 @@ test RepoSubtree:
         git -C work rev-parse HEAD:first
         git -C work rev-parse HEAD:first/second
 
+        git clone -q --bare work bare.git
+
     expect /([0-9a-f]+)/ from git_init capture commit
     expect /([0-9a-f]+)/ from git_init capture root
     expect /([0-9a-f]+)/ from git_init capture sub1
     expect /([0-9a-f]+)/ from git_init capture sub2
 
-    for repo in [ "./work" ]:
+    for repo in [ "./work", "./bare.git" ]:
         local:
             spawn as p on n args [ repo, "subtree", commit, "" ]
             expect from p /msg $root/
+            expect from p /path (.*)/ capture path
+            guard (path == "")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "." ]
             expect from p /msg $root/
+            expect from p /path (.*)/ capture path
+            guard (path == "")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "/" ]
             expect from p /msg $root/
+            expect from p /path (.*)/ capture path
+            guard (path == "")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "first" ]
             expect from p /msg $sub1/
+            expect from p /path (.*)/ capture path
+            guard (path == "first")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "./first" ]
             expect from p /msg $sub1/
+            expect from p /path (.*)/ capture path
+            guard (path == "first")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "/first" ]
             expect from p /msg $sub1/
+            expect from p /path (.*)/ capture path
+            guard (path == "first")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "./first/second" ]
             expect from p /msg $sub2/
+            expect from p /path (.*)/ capture path
+            guard (path == "first/second")
 
         local:
             spawn as p on n args [ repo, "subtree", commit, "/first/second" ]
             expect from p /msg $sub2/
+            expect from p /path (.*)/ capture path
+            guard (path == "first/second")
 
         local:
             spawn as p on n args [ repo, "subtree", "$sub1(first)", "second" ]
             expect from p /msg $sub2/
+            expect from p /path (.*)/ capture path
+            guard (path == "first/second")
 
         local:
             spawn as p on n args [ repo, "subtree", "$sub1(first)", "./second" ]
             expect from p /msg $sub2/
+            expect from p /path (.*)/ capture path
+            guard (path == "first/second")
 
         local:
             spawn as p on n args [ repo, "subtree", "$sub1(first)", "/second/" ]
             expect from p /msg $sub2/
+            expect from p /path (.*)/ capture path
+            guard (path == "first/second")

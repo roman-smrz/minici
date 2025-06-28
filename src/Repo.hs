@@ -280,15 +280,19 @@ getCommitMessage = fmap commitMessage . getCommitDetails
 getSubtree :: (MonadIO m, MonadFail m) => Maybe Commit -> FilePath -> Tree -> m Tree
 getSubtree mbCommit path tree = liftIO $ do
     let GitRepo {..} = treeRepo tree
-    readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", showTreeId (treeId tree) <> ":./" <> path <> "/" ] "" >>= \case
-        ( ExitSuccess, out, _ ) | tid : _ <- lines out -> do
-            return Tree
-                { treeRepo = treeRepo tree
-                , treeId = TreeId (BC.pack tid)
-                , treeSubdir = treeSubdir tree </> path
-                }
-        _ -> do
-            fail $ "subtree ‘" <> path <> "’ not found" <> maybe "" ((" in revision ‘" <>) . (<> "’") . showCommitId . commitId) mbCommit
+        dirs = dropWhile (`elem` [ ".", "/" ]) $ splitDirectories path
+
+    case dirs of
+        [] -> return tree
+        _ -> readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", showTreeId (treeId tree) <> ":" <> joinPath dirs ] "" >>= \case
+            ( ExitSuccess, out, _ ) | tid : _ <- lines out -> do
+                return Tree
+                    { treeRepo = treeRepo tree
+                    , treeId = TreeId (BC.pack tid)
+                    , treeSubdir = joinPath $ treeSubdir tree : dirs
+                    }
+            _ -> do
+                fail $ "subtree ‘" <> path <> "’ not found" <> maybe "" ((" in revision ‘" <>) . (<> "’") . showCommitId . commitId) mbCommit
 
 
 checkoutAt :: (MonadIO m, MonadFail m) => Tree -> FilePath -> m ()

@@ -44,3 +44,4 @@ cmdSubtree (SubtreeCommand SubtreeOptions args) = do
 
     subtree <- getSubtree Nothing (T.unpack path) =<< readTree repo subdir tree
     outputMessage out $ textTreeId $ treeId subtree
+    outputEvent out $ TestMessage $ "path " <> T.pack (treeSubdir subtree)
