@@ -90,10 +90,15 @@ textJobStatus = \case
     JobWaiting _ -> "waiting"
     JobRunning -> "running"
     JobSkipped -> "skipped"
-    JobError err -> "error\n" <> footnoteText err
+    JobError _ -> "error"
     JobFailed -> "failed"
     JobCancelled -> "cancelled"
     JobDone _ -> "done"
+
+textJobStatusDetails :: JobStatus a -> Text
+textJobStatusDetails = \case
+    JobError err -> footnoteText err <> "\n"
+    _ -> ""
 
 
 data JobManager = JobManager
@@ -282,7 +287,7 @@ updateStatusFile path outVar = void $ liftIO $ forkIO $ loop Nothing
             status <- readTVar outVar
             when (Just status == prev) retry
             return status
-        T.writeFile path $ textJobStatus status <> "\n"
+        T.writeFile path $ textJobStatus status <> "\n" <> textJobStatusDetails status
         when (not (jobStatusFinished status)) $ loop $ Just status
 
 jobStorageSubdir :: JobId -> FilePath
