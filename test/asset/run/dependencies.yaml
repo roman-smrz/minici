@@ -1,0 +1,55 @@
+job first:
+  shell:
+    - touch x
+
+  artifact out:
+    path: x
+
+
+job second:
+  uses:
+    - first.out
+
+  shell:
+    - mv x y
+
+  artifact out:
+    path: y
+
+
+job third:
+  uses:
+    - first.out
+
+  shell:
+    - mv x z
+
+  artifact out:
+    path: z
+
+
+job fourth:
+  uses:
+    - second.out
+
+  shell:
+    - mv y w
+
+  artifact out:
+    path: w
+
+
+job fifth:
+    uses:
+      - third.out
+      - fourth.out
+
+    shell:
+      - mv z z2
+      - mv w w2
+
+    artifact out1:
+      path: z2
+
+    artifact out2:
+      path: w2

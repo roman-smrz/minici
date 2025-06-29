@@ -150,8 +150,17 @@ argumentJobSource names = do
 refJobSource :: [ JobRef ] -> CommandExec JobSource
 refJobSource [] = emptyJobSource
 refJobSource refs = do
-    jobs <- cmdEvalWith id $ mapM evalJobReference refs
-    oneshotJobSource . map (JobSet Nothing . Right . (: [])) $ jobs
+    jobs <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
+    oneshotJobSource . map (JobSet Nothing . Right . reverse) $ jobs
+  where
+    deriveSetId :: Job -> [ JobIdPart ]
+    deriveSetId job = let JobId parts = jobId job in init parts
+
+    addJobToList :: [[ Job ]] -> Job -> [[ Job ]]
+    addJobToList (js@(j : _) : rest) job
+        | deriveSetId j == deriveSetId job = (job : js) : rest
+        | otherwise                        = js : addJobToList rest job
+    addJobToList _ job                     = [[ job ]]
 
 loadJobSetFromRoot :: (MonadIO m, MonadFail m) => JobRoot -> Commit -> m DeclaredJobSet
 loadJobSetFromRoot root commit = case root of
