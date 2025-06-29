@@ -173,6 +173,7 @@ loadJobSetForCommit :: (MonadIO m, MonadFail m) => Commit -> m DeclaredJobSet
 loadJobSetForCommit commit = return . toJobSet =<< loadConfigForCommit =<< getCommitTree commit
   where
     toJobSet configEither = JobSet
-        { jobsetCommit = Just commit
+        { jobsetId = ()
+        , jobsetCommit = Just commit
         , jobsetJobsEither = fmap configJobs configEither
         }

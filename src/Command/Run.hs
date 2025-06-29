@@ -139,6 +139,7 @@ argumentJobSource names = do
         Just commit -> (: []) <$> getCommitTree commit
         Nothing -> return []
     let cidPart = map (JobIdTree Nothing "" . treeId) jobtree
+        jobsetId = ()
     jobsetJobsEither <- fmap Right $ forM names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just job -> return job
@@ -151,22 +152,20 @@ refJobSource :: [ JobRef ] -> CommandExec JobSource
 refJobSource [] = emptyJobSource
 refJobSource refs = do
     jobs <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
-    oneshotJobSource . map (JobSet Nothing . Right . reverse) $ jobs
+    oneshotJobSource . map (\( sid, js ) -> JobSet sid Nothing (Right $ reverse js)) $ jobs
   where
-    deriveSetId :: Job -> [ JobIdPart ]
-    deriveSetId job = let JobId parts = jobId job in init parts
-
-    addJobToList :: [[ Job ]] -> Job -> [[ Job ]]
-    addJobToList (js@(j : _) : rest) job
-        | deriveSetId j == deriveSetId job = (job : js) : rest
-        | otherwise                        = js : addJobToList rest job
-    addJobToList _ job                     = [[ job ]]
+    addJobToList :: [ ( JobSetId, [ Job ] ) ] -> ( Job, JobSetId ) -> [ ( JobSetId, [ Job ] ) ]
+    addJobToList (( sid, js ) : rest ) ( job, jsid )
+        | sid == jsid             = ( sid, job : js ) : rest
+        | otherwise               = ( sid, js ) : addJobToList rest ( job, jsid )
+    addJobToList [] ( job, jsid ) = [ ( jsid, [ job ] ) ]
 
 loadJobSetFromRoot :: (MonadIO m, MonadFail m) => JobRoot -> Commit -> m DeclaredJobSet
 loadJobSetFromRoot root commit = case root of
     JobRootRepo _ -> loadJobSetForCommit commit
     JobRootConfig config -> return JobSet
-        { jobsetCommit = Just commit
+        { jobsetId = ()
+        , jobsetCommit = Just commit
         , jobsetJobsEither = Right $ configJobs config
         }
 

@@ -78,7 +78,7 @@ collectOtherRepos dset decl = do
     return $ map (\r -> ( r, commonSubdir r )) . nub . map jcRepo $ checkouts
 
 
-evalJob :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> DeclaredJob -> Eval Job
+evalJob :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> DeclaredJob -> Eval ( Job, JobSetId )
 evalJob revisionOverrides dset decl = do
     EvalInput {..} <- ask
     otherRepos <- collectOtherRepos dset decl
@@ -102,20 +102,27 @@ evalJob revisionOverrides dset decl = do
             }
 
     let otherRepoIds = map (\( repo, ( subtree, tree )) -> JobIdTree (fst <$> repo) subtree (treeId tree)) otherRepoTrees
-    return Job
-        { jobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId decl) : eiCurrentIdRev
-        , jobName = jobName decl
-        , jobCheckout = checkouts
-        , jobRecipe = jobRecipe decl
-        , jobArtifacts = jobArtifacts decl
-        , jobUses = jobUses decl
-        }
+    return
+        ( Job
+            { jobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId decl) : eiCurrentIdRev
+            , jobName = jobName decl
+            , jobCheckout = checkouts
+            , jobRecipe = jobRecipe decl
+            , jobArtifacts = jobArtifacts decl
+            , jobUses = jobUses decl
+            }
+        , JobSetId $ reverse $ reverse otherRepoIds ++ eiCurrentIdRev
+        )
 
 evalJobSet :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval JobSet
 evalJobSet revisionOverrides decl = do
-    jobs <- either (return . Left) (handleToEither . mapM (evalJob revisionOverrides decl)) $ jobsetJobsEither decl
+    EvalInput {..} <- ask
+    jobs <- fmap (fmap (map fst))
+        $ either (return . Left) (handleToEither . mapM (evalJob revisionOverrides decl))
+        $ jobsetJobsEither decl
     return JobSet
-        { jobsetCommit = jobsetCommit decl
+        { jobsetId = JobSetId $ reverse $ eiCurrentIdRev
+        , jobsetCommit = jobsetCommit decl
         , jobsetJobsEither = jobs
         }
   where
@@ -130,10 +137,10 @@ evalRepo (Just name) = asks (lookup name . eiOtherRepos) >>= \case
     Nothing -> throwError $ OtherEvalError $ "repo ‘" <> textRepoName name <> "’ not defined"
 
 
-canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval Job
+canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval ( Job, JobSetId )
 canonicalJobName (r : rs) config mbDefaultRepo = do
     let name = JobName r
-        dset = JobSet Nothing $ Right $ configJobs config
+        dset = JobSet () Nothing $ Right $ configJobs config
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
             otherRepos <- collectOtherRepos dset djob
@@ -157,14 +164,14 @@ readTreeFromIdRef (r : rs) subdir repo = do
             Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
 readTreeFromIdRef [] _ _ = throwError $ OtherEvalError $ "expected commit or tree reference"
 
-canonicalCommitConfig :: [ Text ] -> Repo -> Eval Job
+canonicalCommitConfig :: [ Text ] -> Repo -> Eval ( Job, JobSetId )
 canonicalCommitConfig rs repo = do
     ( tree, rs' ) <- readTreeFromIdRef rs "" repo
     config <- either fail return =<< loadConfigForCommit tree
     local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing "" (treeId tree) : eiCurrentIdRev ei }) $
         canonicalJobName rs' config (Just tree)
 
-evalJobReference :: JobRef -> Eval Job
+evalJobReference :: JobRef -> Eval ( Job, JobSetId )
 evalJobReference (JobRef rs) =
     asks eiJobRoot >>= \case
         JobRootRepo defRepo -> do

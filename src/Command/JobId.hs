@@ -52,7 +52,7 @@ cmdJobId :: JobIdCommand -> CommandExec ()
 cmdJobId (JobIdCommand JobIdOptions {..} ref) = do
     einput <- getEvalInput
     out <- getOutput
-    JobId ids <- either (tfail . textEvalError) (return . jobId) =<<
+    JobId ids <- either (tfail . textEvalError) (return . jobId . fst) =<<
         liftIO (runEval (evalJobReference ref) einput)
 
     outputMessage out $ textJobId $ JobId ids

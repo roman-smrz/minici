@@ -55,18 +55,26 @@ data ArtifactName = ArtifactName Text
 
 
 data JobSet' d = JobSet
-    { jobsetCommit :: Maybe Commit
+    { jobsetId :: JobSetId' d
+    , jobsetCommit :: Maybe Commit
     , jobsetJobsEither :: Either String [ Job' d ]
     }
 
 type JobSet = JobSet' Evaluated
 type DeclaredJobSet = JobSet' Declared
 
+type family JobSetId' d :: Type where
+    JobSetId' Declared = ()
+    JobSetId' Evaluated = JobSetId
+
 jobsetJobs :: JobSet -> [ Job ]
 jobsetJobs = either (const []) id . jobsetJobsEither
 
 
 newtype JobId = JobId [ JobIdPart ]
+    deriving (Eq, Ord)
+
+newtype JobSetId = JobSetId [ JobIdPart ]
     deriving (Eq, Ord)
 
 data JobIdPart
