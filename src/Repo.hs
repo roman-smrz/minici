@@ -9,8 +9,8 @@ module Repo (
     Tag(..),
 
     openRepo,
-    readCommit, tryReadCommit,
-    readTree, tryReadTree,
+    readCommit, readCommitId, tryReadCommit,
+    readTree, readTreeId, tryReadTree,
     readBranch,
     readTag,
     listCommits,
@@ -175,12 +175,18 @@ readCommit :: (MonadIO m, MonadFail m) => Repo -> Text -> m Commit
 readCommit repo@GitRepo {..} ref = maybe (fail err) return =<< tryReadCommit repo ref
     where err = "revision ‘" <> T.unpack ref <> "’ not found in ‘" <> gitDir <> "’"
 
+readCommitId :: (MonadIO m, MonadFail m) => Repo -> CommitId -> m Commit
+readCommitId repo cid = readCommit repo (textCommitId cid)
+
 tryReadCommit :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Maybe Commit)
 tryReadCommit repo ref = sequence . fmap (mkCommit repo . CommitId) =<< tryReadObjectId repo "commit" ref
 
 readTree :: (MonadIO m, MonadFail m) => Repo -> FilePath -> Text -> m Tree
 readTree repo@GitRepo {..} subdir ref = maybe (fail err) return =<< tryReadTree repo subdir ref
     where err = "tree ‘" <> T.unpack ref <> "’ not found in ‘" <> gitDir <> "’"
+
+readTreeId :: (MonadIO m, MonadFail m) => Repo -> FilePath -> TreeId -> m Tree
+readTreeId repo subdir tid = readTree repo subdir $ textTreeId tid
 
 tryReadTree :: (MonadIO m, MonadFail m) => Repo -> FilePath -> Text -> m (Maybe Tree)
 tryReadTree treeRepo treeSubdir ref = do

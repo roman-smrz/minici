@@ -271,14 +271,24 @@ test RunExplicitDependentJob:
     expect /([0-9a-f]+)/ from git_init capture t4
 
     local:
-        spawn on n as p args [ "./main", "run", "$c1.first", "$t2.first", "$t3.second", "$c1.fifth", "$c1.fourth", "$c1.third", "$c1.second" ]
+        spawn on n as p args [ "./main", "run", "$c1.first", "$t2.first", "$t3.fourth", "$c1.fifth", "$c1.fourth", "$c1.third", "$c1.second", "$t4.fifth" ]
         expect_success from p of "$t1.first"
         expect_success from p of "$t1.second"
         expect_success from p of "$t1.third"
         expect_success from p of "$t1.fourth"
         expect_success from p of "$t1.fifth"
+
         expect_success from p of "$t2.first"
-        expect from p /job-finish $t3.second error/
+
+        expect_success from p of "$t3.first"
+        expect_success from p of "$t3.second"
+        expect_success from p of "$t3.fourth"
+
+        expect_success from p of "$t4.first"
+        expect_success from p of "$t4.second"
+        expect_success from p of "$t4.third"
+        expect_success from p of "$t4.fourth"
+        expect_success from p of "$t4.fifth"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done

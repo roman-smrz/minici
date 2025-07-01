@@ -6,6 +6,9 @@ module Eval (
     evalJob,
     evalJobSet,
     evalJobReference,
+
+    loadJobSetById,
+    fillInDependencies,
 ) where
 
 import Control.Monad
@@ -14,6 +17,7 @@ import Control.Monad.Reader
 
 import Data.List
 import Data.Maybe
+import Data.Set qualified as S
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -178,3 +182,86 @@ evalJobReference (JobRef rs) =
             canonicalCommitConfig rs defRepo
         JobRootConfig config -> do
             canonicalJobName rs config Nothing
+
+
+jobsetFromConfig :: [ JobIdPart ] -> Config -> Maybe Tree -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )
+jobsetFromConfig sid config _ = do
+    EvalInput {..} <- ask
+    let dset = JobSet () Nothing $ Right $ configJobs config
+    otherRepos <- forM sid $ \case
+        JobIdName name -> do
+            throwError $ OtherEvalError $ "expected tree id, not a job name ‘" <> textJobName name <> "’"
+        JobIdCommit name cid -> do
+            repo <- evalRepo name
+            tree <- getCommitTree =<< readCommitId repo cid
+            return ( name, tree )
+        JobIdTree name path tid -> do
+            repo <- evalRepo name
+            tree <- readTreeId repo path tid
+            return ( name, tree )
+    return ( dset, eiCurrentIdRev, otherRepos )
+
+jobsetFromCommitConfig :: [ JobIdPart ] -> Repo -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )
+jobsetFromCommitConfig (JobIdTree name path tid : sid) repo = do
+    when (isJust name) $ do
+        throwError $ OtherEvalError $ "expected default repo commit or tree id"
+    when (not (null path)) $ do
+        throwError $ OtherEvalError $ "expected root commit or tree id"
+    tree <- readTreeId repo path tid
+    config <- either fail return =<< loadConfigForCommit tree
+    local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing "" (treeId tree) : eiCurrentIdRev ei }) $ do
+        ( dset, idRev, otherRepos ) <- jobsetFromConfig sid config (Just tree)
+        return ( dset, idRev, ( Nothing, tree ) : otherRepos )
+
+jobsetFromCommitConfig (JobIdCommit name cid : sid) repo = do
+    when (isJust name) $ do
+        throwError $ OtherEvalError $ "expected default repo commit or tree id"
+    tree <- getCommitTree =<< readCommitId repo cid
+    jobsetFromCommitConfig (JobIdTree name "" (treeId tree) : sid) repo
+
+jobsetFromCommitConfig (JobIdName name : _) _ = do
+    throwError $ OtherEvalError $ "expected commit or tree id, not a job name ‘" <> textJobName name <> "’"
+
+jobsetFromCommitConfig [] _ = do
+    throwError $ OtherEvalError $ "expected commit or tree id"
+
+loadJobSetById :: JobSetId -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )
+loadJobSetById (JobSetId sid) = do
+    asks eiJobRoot >>= \case
+        JobRootRepo defRepo -> do
+            jobsetFromCommitConfig sid defRepo
+        JobRootConfig config -> do
+            jobsetFromConfig sid config Nothing
+
+fillInDependencies :: JobSet -> Eval JobSet
+fillInDependencies jset = do
+    ( dset, idRev, otherRepos ) <- local (\ei -> ei { eiCurrentIdRev = [] }) $ do
+        loadJobSetById (jobsetId jset)
+    origJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither jset
+    declJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
+    deps <- gather declJobs S.empty (map jobName origJobs)
+
+    jobs <- local (\ei -> ei { eiCurrentIdRev = idRev }) $ do
+        fmap catMaybes $ forM declJobs $ \djob -> if
+            | Just job <- find ((jobName djob ==) . jobName) origJobs
+            -> return (Just job)
+
+            | jobName djob `S.member` deps
+            -> Just . fst <$> evalJob otherRepos dset djob
+
+            | otherwise
+            -> return Nothing
+
+    return $ jset { jobsetJobsEither = Right jobs }
+  where
+    gather djobs cur ( name : rest )
+        | name `S.member` cur
+        = gather djobs cur rest
+
+        | Just djob <- find ((name ==) . jobName) djobs
+        = gather djobs (S.insert name cur) $ map fst (jobUses djob) ++ rest
+
+        | otherwise
+        = throwError $ OtherEvalError $ "dependency ‘" <> textJobName name <> "’ not found"
+
+    gather _ cur [] = return cur

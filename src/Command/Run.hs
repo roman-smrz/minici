@@ -126,7 +126,7 @@ mergeSources sources = do
 argumentJobSource :: [ JobName ] -> CommandExec JobSource
 argumentJobSource [] = emptyJobSource
 argumentJobSource names = do
-    ( config, jobsetCommit ) <- getJobRoot >>= \case
+    ( config, jcommit ) <- getJobRoot >>= \case
         JobRootConfig config -> do
             commit <- sequence . fmap createWipCommit =<< tryGetDefaultRepo
             return ( config, commit )
@@ -135,24 +135,33 @@ argumentJobSource names = do
             config <- either fail return =<< loadConfigForCommit =<< getCommitTree commit
             return ( config, Just commit )
 
-    jobtree <- case jobsetCommit of
+    jobtree <- case jcommit of
         Just commit -> (: []) <$> getCommitTree commit
         Nothing -> return []
     let cidPart = map (JobIdTree Nothing "" . treeId) jobtree
-        jobsetId = ()
-    jobsetJobsEither <- fmap Right $ forM names $ \name ->
+    forM_ names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
-            Just job -> return job
+            Just _  -> return ()
             Nothing -> tfail $ "job ‘" <> textJobName name <> "’ not found"
-    oneshotJobSource . (: []) =<<
-        cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei })
-        (evalJobSet (map ( Nothing, ) jobtree) JobSet {..})
+
+    jset <- cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei }) $ do
+        fullSet <- evalJobSet (map ( Nothing, ) jobtree) JobSet
+            { jobsetId = ()
+            , jobsetCommit = jcommit
+            , jobsetJobsEither = Right (configJobs config)
+            }
+        let selectedSet = fullSet { jobsetJobsEither = fmap (filter ((`elem` names) . jobName)) (jobsetJobsEither fullSet) }
+        fillInDependencies selectedSet
+    oneshotJobSource [ jset ]
 
 refJobSource :: [ JobRef ] -> CommandExec JobSource
 refJobSource [] = emptyJobSource
 refJobSource refs = do
     jobs <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
-    oneshotJobSource . map (\( sid, js ) -> JobSet sid Nothing (Right $ reverse js)) $ jobs
+    sets <- cmdEvalWith id $ do
+        forM jobs $ \( sid, js ) -> do
+            fillInDependencies $ JobSet sid Nothing (Right $ reverse js)
+    oneshotJobSource sets
   where
     addJobToList :: [ ( JobSetId, [ Job ] ) ] -> ( Job, JobSetId ) -> [ ( JobSetId, [ Job ] ) ]
     addJobToList (( sid, js ) : rest ) ( job, jsid )
