@@ -3,15 +3,23 @@ job generate:
 
   shell:
     - echo "content 1" > f1
-    - mkdir subdir
-    - echo "content 2" > subdir/f2
+    - mkdir -p dir/subdir
+    - echo "content 2" > dir/f2
+    - echo "content a" > dir/fa
+    - echo "content b" > dir/subdir/fb
     - echo "content 3" > f3
 
   artifact first:
     path: f1
 
   artifact second:
-    path: subdir/f2
+    path: dir/f2
 
   artifact third:
     path: f3
+
+  artifact dir:
+    path: dir
+
+  artifact sdir:
+    path: dir/subdir

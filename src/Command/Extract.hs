@@ -14,6 +14,7 @@ import System.FilePath
 
 import Command
 import Eval
+import Job
 import Job.Types
 
 
@@ -103,4 +104,4 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
             liftIO (doesPathExist tpath) >>= \case
                 True -> tfail $ "destination ‘" <> T.pack tpath <> "’ already exists"
                 False -> return ()
-        liftIO $ copyFile (adir </> afile) tpath
+        liftIO $ copyRecursiveForce (adir </> afile) tpath

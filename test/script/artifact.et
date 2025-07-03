@@ -7,21 +7,39 @@ asset scripts:
 test ExtractArtifact:
     node n
     local:
-        spawn on n as p args [ "${scripts.path}/minici.yaml", "run", "generate" ]
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "run", "generate" ]
         expect /job-finish generate done/ from p
 
     local:
-        spawn on n as p args [ "${scripts.path}/minici.yaml", "extract", "generate.first", "extracted" ]
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.first", "extracted" ]
     local:
         shell on n as s:
             cat ./extracted
         expect /content 1/ from s
 
     local:
-        spawn on n as p args [ "${scripts.path}/minici.yaml", "extract", "generate.second", "generate.third", "." ]
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.second", "generate.third", "." ]
     local:
         shell on n as s:
             cat ./f2
             cat ./f3
         expect /content 2/ from s
         expect /content 3/ from s
+
+    local:
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.dir", "." ]
+    local:
+        shell on n as s:
+            cat ./dir/f2
+            cat ./dir/fa
+            cat ./dir/subdir/fb
+        expect /content 2/ from s
+        expect /content a/ from s
+        expect /content b/ from s
+
+    local:
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.sdir", "extracted_subdir" ]
+    local:
+        shell on n as s:
+            cat ./extracted_subdir/fb
+        expect /content b/ from s

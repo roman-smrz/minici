@@ -9,6 +9,9 @@ module Job (
     JobManager(..), newJobManager, cancelAllJobs,
     runJobs,
     jobStorageSubdir,
+
+    copyRecursive,
+    copyRecursiveForce,
 ) where
 
 import Control.Concurrent
@@ -309,7 +312,7 @@ runJob job uses checkoutPath jdir = do
     liftIO $ forM_ uses $ \aout -> do
         let target = checkoutPath </> aoutWorkPath aout
         createDirectoryIfMissing True $ takeDirectory target
-        copyFile (aoutStorePath aout) target
+        copyRecursive (aoutStorePath aout) target
 
     bracket (liftIO $ openFile (jdir </> "log") WriteMode) (liftIO . hClose) $ \logs -> do
         forM_ (jobRecipe job) $ \p -> do
@@ -338,7 +341,7 @@ runJob job uses checkoutPath jdir = do
             let target = adir </> T.unpack tname </> takeFileName path
             liftIO $ do
                 createDirectoryIfMissing True $ takeDirectory target
-                copyFile path target
+                copyRecursiveForce path target
             return $ ArtifactOutput
                 { aoutName = name
                 , aoutWorkPath = makeRelative checkoutPath path
@@ -349,3 +352,22 @@ runJob job uses checkoutPath jdir = do
             { outName = jobName job
             , outArtifacts = artifacts
             }
+
+
+copyRecursive :: FilePath -> FilePath -> IO ()
+copyRecursive from to = do
+    doesDirectoryExist from >>= \case
+        False -> do
+            copyFile from to
+        True -> do
+            createDirectory to
+            content <- listDirectory from
+            forM_ content $ \name -> do
+                copyRecursive  (from </> name) (to </> name)
+
+copyRecursiveForce :: FilePath -> FilePath -> IO ()
+copyRecursiveForce from to = do
+    doesDirectoryExist to >>= \case
+        False -> return ()
+        True  -> removeDirectoryRecursive to
+    copyRecursive from to
