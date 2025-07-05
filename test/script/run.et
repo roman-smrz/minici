@@ -14,7 +14,7 @@ def expect_success from p of job:
     expect_result from p of job result "done"
 
 
-test RunWithouRepo:
+test RunWithoutRepo:
     node n
     spawn on n as p args [ "${scripts.path}/norepo-basic.yaml", "run", "success", "failure" ]
     expect_result from p:
