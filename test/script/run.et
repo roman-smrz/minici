@@ -16,7 +16,7 @@ def expect_success from p of job:
 
 test RunWithoutRepo:
     node n
-    spawn on n as p args [ "${scripts.path}/norepo-basic.yaml", "run", "success", "failure" ]
+    spawn on n as p args [ "--storage=.minici", "${scripts.path}/norepo-basic.yaml", "run", "success", "failure" ]
     expect_result from p:
         of "success" result "done"
         of "failure" result "failed"
@@ -113,7 +113,7 @@ test RunExternalRepo:
 
     # Explicit jobfile outside of any git repo
     local:
-        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "${scripts.path}/external.yaml", "run", "single", "multiple", "combine" ]
+        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "--storage=.minici", "${scripts.path}/external.yaml", "run", "single", "multiple", "combine" ]
         for job in [ "single.$first_root", "multiple.$first_subtree.$second_subtree", "combine.$first_root.$second_subtree" ]:
             expect_success from p of job
 
@@ -122,7 +122,7 @@ test RunExternalRepo:
 
     # Explicit jobfile within a git repo
     local:
-        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "${scripts.path}/external.yaml", "run", "single" ]
+        spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "--storage=.minici", "${scripts.path}/external.yaml", "run", "single" ]
         expect_success from p of "single.$first_root"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
