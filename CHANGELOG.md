@@ -1,5 +1,12 @@
 # Revision history for MiniCI
 
+## 0.1.8 -- 2025-07-06
+
+* Added `shell` command to open a shell prepared for given job
+* Support whole directories as artifacts
+* Automatically run dependencies of jobs specified on command line
+* Fix getting (sub)directory in a bare repository
+
 ## 0.1.7 -- 2025-05-28
 
 * Added `log` command to show job log
