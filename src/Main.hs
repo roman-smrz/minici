@@ -25,6 +25,7 @@ import Command.Extract
 import Command.JobId
 import Command.Log
 import Command.Run
+import Command.Shell
 import Command.Subtree
 import Config
 import Output
@@ -93,6 +94,7 @@ commands =
     , SC $ Proxy @ExtractCommand
     , SC $ Proxy @JobIdCommand
     , SC $ Proxy @LogCommand
+    , SC $ Proxy @ShellCommand
     , SC $ Proxy @SubtreeCommand
     ]
 

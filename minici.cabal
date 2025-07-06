@@ -53,6 +53,7 @@ executable minici
         Command.JobId
         Command.Log
         Command.Run
+        Command.Shell
         Command.Subtree
         Config
         Eval

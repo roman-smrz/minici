@@ -8,6 +8,7 @@ module Job (
     jobStatusFinished, jobStatusFailed,
     JobManager(..), newJobManager, cancelAllJobs,
     runJobs,
+    prepareJob,
     jobStorageSubdir,
 
     copyRecursive,
