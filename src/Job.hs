@@ -48,8 +48,7 @@ import Repo
 
 
 data JobOutput = JobOutput
-    { outName :: JobName
-    , outArtifacts :: [ArtifactOutput]
+    { outArtifacts :: [ArtifactOutput]
     }
     deriving (Eq)
 
@@ -350,8 +349,7 @@ runJob job uses checkoutPath jdir = do
                 }
 
         return JobOutput
-            { outName = jobName job
-            , outArtifacts = artifacts
+            { outArtifacts = artifacts
             }
 
 
