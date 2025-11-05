@@ -329,8 +329,8 @@ runJob job uses checkoutPath jdir = do
                     | fromIntegral n == -sigINT -> throwError JobCancelled
                     | otherwise -> throwError JobFailed
 
-        let adir = jdir </> "artifacts"
         artifacts <- forM (jobArtifacts job) $ \( name@(ArtifactName tname), pathPattern ) -> do
+            let adir = jdir </> "artifacts" </> T.unpack tname
             path <- liftIO (globDir1 pathPattern checkoutPath) >>= \case
                 [ path ] -> return path
                 found -> do
@@ -338,13 +338,15 @@ runJob job uses checkoutPath jdir = do
                         (if null found then "no file" else "multiple files") <> " found matching pattern ‘" <>
                         decompile pathPattern <> "’ for artifact ‘" <> T.unpack tname <> "’"
                     throwError JobFailed
-            let target = adir </> T.unpack tname </> takeFileName path
+            let target = adir </> "data"
+                workPath = makeRelative checkoutPath path
             liftIO $ do
                 createDirectoryIfMissing True $ takeDirectory target
                 copyRecursiveForce path target
+                writeFile (adir </> "path") workPath
             return $ ArtifactOutput
                 { aoutName = name
-                , aoutWorkPath = makeRelative checkoutPath path
+                , aoutWorkPath = workPath
                 , aoutStorePath = target
                 }
 

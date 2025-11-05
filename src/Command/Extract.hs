@@ -93,15 +93,11 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
             True -> return ()
             False -> tfail $ "artifact ‘" <> aname <> "’ of job ‘" <> textJobId jid <> "’ not found"
 
-        afile <- liftIO (listDirectory adir) >>= \case
-            [ file ] -> return file
-            []       -> tfail $ "artifact ‘" <> aname <> "’ of job ‘" <> textJobId jid <> "’ not found"
-            _:_:_    -> tfail $ "unexpected files in ‘" <> T.pack adir <> "’"
-
-        let tpath | isdir = extractDestination </> afile
+        wpath <- liftIO $ readFile (adir </> "path")
+        let tpath | isdir = extractDestination </> takeFileName wpath
                   | otherwise = extractDestination
         when (not extractForce) $ do
             liftIO (doesPathExist tpath) >>= \case
                 True -> tfail $ "destination ‘" <> T.pack tpath <> "’ already exists"
                 False -> return ()
-        liftIO $ copyRecursiveForce (adir </> afile) tpath
+        liftIO $ copyRecursiveForce (adir </> "data") tpath
