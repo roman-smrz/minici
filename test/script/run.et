@@ -10,8 +10,17 @@ def expect_result from p of job result result:
         /job-finish $job ([a-z]+)/ capture done
     guard (done == result)
 
+def expect_previous_result from p of job result result:
+    let dummy = job == "" # TODO: forces string type
+    expect from p:
+        /job-previous $job ([a-z]+)/ capture done
+    guard (done == result)
+
 def expect_success from p of job:
     expect_result from p of job result "done"
+
+def expect_previous_success from p of job:
+    expect_previous_result from p of job result "done"
 
 
 test RunWithoutRepo:
@@ -61,12 +70,14 @@ test RunWithRepo:
 
     local:
         spawn on n as p args [ "./minici.yaml", "run", "--range=$c0..$c2" ]
-        expect_result from p:
+        expect_previous_result from p:
             of "$t1.success" result "done"
             of "$t1.failure" result "failed"
+        expect_result from p:
             of "$t1.third" result "done"
             of "$t1.fourth" result "done"
 
+        expect_previous_result from p:
             of "$t2.success" result "done"
             of "$t2.failure" result "failed"
             of "$t2.third" result "done"
@@ -123,7 +134,7 @@ test RunExternalRepo:
     # Explicit jobfile within a git repo
     local:
         spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "--storage=.minici", "${scripts.path}/external.yaml", "run", "single" ]
-        expect_success from p of "single.$first_root"
+        expect_previous_success from p of "single.$first_root"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
@@ -291,5 +302,6 @@ test RunExplicitDependentJob:
         expect_success from p of "$t4.fifth"
 
         flush from p matching /note .*/
+        flush from p matching /job-duplicate .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")

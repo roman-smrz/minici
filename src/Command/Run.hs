@@ -381,6 +381,10 @@ showStatus blink = \case
         JobRunning   -> "\ESC[96m" <> (if blink then "*" else "^") <> "\ESC[0m      "
         _            -> showStatus blink s
 
+    JobPreviousStatus (JobDone _) -> "\ESC[90m«\ESC[32m✓\ESC[0m     "
+    JobPreviousStatus (JobFailed) -> "\ESC[90m«\ESC[31m✗\ESC[0m     "
+    JobPreviousStatus s           -> "\ESC[90m«" <> T.init (showStatus blink s)
+
 displayStatusLine :: TerminalOutput -> TerminalLine -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
 displayStatusLine tout line prefix1 prefix2 statuses = do
     go "\0"

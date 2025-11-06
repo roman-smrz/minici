@@ -44,6 +44,8 @@ data OutputEvent
     | LogMessage Text
     | JobStarted JobId
     | JobFinished JobId Text
+    | JobIsDuplicate JobId Text
+    | JobPreviouslyFinished JobId Text
 
 data OutputFootnote = OutputFootnote
     { footnoteText :: Text
@@ -108,6 +110,14 @@ outputEvent out@Output {..} = liftIO . \case
     JobFinished jid status -> do
         forM_ outLogs $ \h -> outStrLn out h ("Finished " <> textJobId jid <> " (" <> status <> ")")
         forM_ outTest $ \h -> outStrLn out h ("job-finish " <> textJobId jid <> " " <> status)
+
+    JobIsDuplicate jid status -> do
+        forM_ outLogs $ \h -> outStrLn out h ("Duplicate " <> textJobId jid <> " (" <> status <> ")")
+        forM_ outTest $ \h -> outStrLn out h ("job-duplicate " <> textJobId jid <> " " <> status)
+
+    JobPreviouslyFinished jid status -> do
+        forM_ outLogs $ \h -> outStrLn out h ("Previously finished " <> textJobId jid <> " (" <> status <> ")")
+        forM_ outTest $ \h -> outStrLn out h ("job-previous " <> textJobId jid <> " " <> status)
 
 outputFootnote :: Output -> Text -> IO OutputFootnote
 outputFootnote out@Output {..} footnoteText = do
