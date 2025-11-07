@@ -41,6 +41,6 @@ cmdShell (ShellCommand ref) = do
         liftIO (runEval (evalJobReference ref) einput)
     sh <- fromMaybe "/bin/sh" <$> liftIO (lookupEnv "SHELL")
     storageDir <- getStorageDir
-    prepareJob storageDir job $ \checkoutPath _ -> do
+    prepareJob storageDir job $ \checkoutPath -> do
         liftIO $ withCreateProcess (proc sh []) { cwd = Just checkoutPath } $ \_ _ _ ph -> do
             void $ waitForProcess ph

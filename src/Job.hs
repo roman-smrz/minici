@@ -248,7 +248,8 @@ runJobs mngr@JobManager {..} tout jobs = do
 
                 case duplicate of
                     Nothing -> do
-                        readStatusFile tout job (jmDataDir </> jobStorageSubdir (jobId job)) >>= \case
+                        let jdir = jmDataDir </> jobStorageSubdir (jobId job)
+                        readStatusFile tout job jdir >>= \case
                             Just status -> do
                                 let status' = JobPreviousStatus status
                                 liftIO $ atomically $ writeTVar outVar status'
@@ -258,7 +259,7 @@ runJobs mngr@JobManager {..} tout jobs = do
                                 runManagedJob mngr tid (return JobCancelled) $ do
                                     liftIO $ atomically $ writeTVar outVar JobRunning
                                     liftIO $ outputEvent tout $ JobStarted (jobId job)
-                                    prepareJob jmDataDir job $ \checkoutPath jdir -> do
+                                    prepareJob jmDataDir job $ \checkoutPath -> do
                                         updateStatusFile jdir outVar
                                         JobDone <$> runJob job uses checkoutPath jdir
 
@@ -346,7 +347,7 @@ updateStatusFile jdir outVar = void $ liftIO $ forkIO $ loop Nothing
 jobStorageSubdir :: JobId -> FilePath
 jobStorageSubdir (JobId jidParts) = "jobs" </> joinPath (map (T.unpack . textJobIdPart) (jidParts))
 
-prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Job -> (FilePath -> FilePath -> m a) -> m a
+prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Job -> (FilePath -> m a) -> m a
 prepareJob dir job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
         forM_ (jobCheckout job) $ \(JobCheckout tree mbsub dest) -> do
@@ -355,7 +356,7 @@ prepareJob dir job inner = do
 
         let jdir = dir </> jobStorageSubdir (jobId job)
         liftIO $ createDirectoryIfMissing True jdir
-        inner checkoutPath jdir
+        inner checkoutPath
 
 runJob :: Job -> [ArtifactOutput] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
 runJob job uses checkoutPath jdir = do
