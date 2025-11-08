@@ -65,7 +65,7 @@ options =
             case span (/= ':') value of
                 ( repo, ':' : path ) -> return opts
                     { optCommon = (optCommon opts)
-                        { optRepo = DeclaredRepo (RepoName $ T.pack repo) path : optRepo (optCommon opts)
+                        { optRepo = ( RepoName $ T.pack repo, path ) : optRepo (optCommon opts)
                         }
                     }
                 _ -> throwError $ "--repo: invalid value ‘" <> value <> "’"
@@ -243,13 +243,13 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
         JobRootRepo repo -> return (Just repo)
         JobRootConfig _  -> openRepo $ takeDirectory ciRootPath
 
-    let openDeclaredRepo dir decl = do
-            let path = dir </> repoPath decl
+    let openDeclaredRepo dir ( name, dpath ) = do
+            let path = dir </> dpath
             openRepo path >>= \case
-                Just repo -> return ( repoName decl, repo )
+                Just repo -> return ( name, repo )
                 Nothing -> do
                     absPath <- makeAbsolute path
-                    hPutStrLn stderr $ "Failed to open repo ‘" <> showRepoName (repoName decl) <> "’ at " <> repoPath decl <> " (" <> absPath <> ")"
+                    hPutStrLn stderr $ "Failed to open repo ‘" <> showRepoName name <> "’ at " <> dpath <> " (" <> absPath <> ")"
                     exitFailure
 
     cmdlineRepos <- forM (optRepo ciOptions) (openDeclaredRepo "")
@@ -258,7 +258,14 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
             forM (configRepos config) $ \decl -> do
                 case lookup (repoName decl) cmdlineRepos of
                     Just repo -> return ( repoName decl, repo )
-                    Nothing -> openDeclaredRepo (takeDirectory ciRootPath) decl
+                    Nothing
+                        | Just path <- repoPath decl
+                        -> openDeclaredRepo (takeDirectory ciRootPath) ( repoName decl, path )
+
+                        | otherwise
+                        -> do
+                            hPutStrLn stderr $ "No path defined for repo ‘" <> showRepoName (repoName decl) <> "’"
+                            exitFailure
         _ -> return []
 
     let ciOtherRepos = configRepos ++ cmdlineRepos

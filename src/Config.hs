@@ -138,9 +138,12 @@ parseUses = withSeq "Uses list" $ mapM $
 
 
 parseRepo :: Text -> Node Pos -> Parser DeclaredRepo
-parseRepo name node = flip (withMap "Repo") node $ \r -> DeclaredRepo
-    <$> pure (RepoName name)
-    <*> (T.unpack <$> r .: "path")
+parseRepo name node = choice
+    [ flip (withNull "Repo") node $ return $ DeclaredRepo (RepoName name) Nothing
+    , flip (withMap "Repo") node $ \r -> DeclaredRepo
+        <$> pure (RepoName name)
+        <*> (fmap T.unpack <$> r .:? "path")
+    ]
 
 
 findConfig :: IO (Maybe FilePath)

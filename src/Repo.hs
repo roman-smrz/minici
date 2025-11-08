@@ -72,7 +72,7 @@ getRepoWorkDir GitRepo {..} = takeDirectory gitDir
 
 data DeclaredRepo = DeclaredRepo
     { repoName :: RepoName
-    , repoPath :: FilePath
+    , repoPath :: Maybe FilePath
     }
 
 newtype RepoName = RepoName Text
