@@ -57,6 +57,7 @@ data ArtifactName = ArtifactName Text
 data JobSet' d = JobSet
     { jobsetId :: JobSetId' d
     , jobsetCommit :: Maybe Commit
+    , jobsetExplicitlyRequested :: [ JobId' d ]
     , jobsetJobsEither :: Either String [ Job' d ]
     }
 

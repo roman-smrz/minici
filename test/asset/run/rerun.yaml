@@ -1,0 +1,45 @@
+job first:
+  shell:
+    - touch x
+
+  artifact out:
+    path: x
+
+
+job second:
+  uses:
+    - first.out
+
+  shell:
+    - mv x y
+
+  artifact out:
+    path: y
+
+
+job first_fail:
+  shell:
+    - "false"
+
+  artifact out:
+    path: x
+
+
+job second_skip:
+  uses:
+    - first_fail.out
+
+  shell:
+    - "true"
+
+  artifact out:
+    path: y
+
+
+job third:
+  uses:
+    - second.out
+    - second_skip.out
+
+  shell:
+    - "true"

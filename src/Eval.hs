@@ -124,9 +124,15 @@ evalJobSet revisionOverrides decl = do
     jobs <- fmap (fmap (map fst))
         $ either (return . Left) (handleToEither . mapM (evalJob revisionOverrides decl))
         $ jobsetJobsEither decl
+    let explicit =
+            case liftM2 zip (jobsetJobsEither decl) jobs of
+                Left _ -> []
+                Right declEval -> catMaybes $
+                    map (\jid -> jobId . snd <$> find ((jid ==) . jobId . fst) declEval) $ jobsetExplicitlyRequested decl
     return JobSet
         { jobsetId = JobSetId $ reverse $ eiCurrentIdRev
         , jobsetCommit = jobsetCommit decl
+        , jobsetExplicitlyRequested = explicit
         , jobsetJobsEither = jobs
         }
   where
@@ -144,7 +150,7 @@ evalRepo (Just name) = asks (lookup name . eiOtherRepos) >>= \case
 canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval ( Job, JobSetId )
 canonicalJobName (r : rs) config mbDefaultRepo = do
     let name = JobName r
-        dset = JobSet () Nothing $ Right $ configJobs config
+        dset = JobSet () Nothing [] $ Right $ configJobs config
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
             otherRepos <- collectOtherRepos dset djob
@@ -187,7 +193,7 @@ evalJobReference (JobRef rs) =
 jobsetFromConfig :: [ JobIdPart ] -> Config -> Maybe Tree -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )
 jobsetFromConfig sid config _ = do
     EvalInput {..} <- ask
-    let dset = JobSet () Nothing $ Right $ configJobs config
+    let dset = JobSet () Nothing [] $ Right $ configJobs config
     otherRepos <- forM sid $ \case
         JobIdName name -> do
             throwError $ OtherEvalError $ "expected tree id, not a job name ‘" <> textJobName name <> "’"

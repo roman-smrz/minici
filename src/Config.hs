@@ -175,5 +175,6 @@ loadJobSetForCommit commit = return . toJobSet =<< loadConfigForCommit =<< getCo
     toJobSet configEither = JobSet
         { jobsetId = ()
         , jobsetCommit = Just commit
+        , jobsetExplicitlyRequested = []
         , jobsetJobsEither = fmap configJobs configEither
         }

@@ -46,6 +46,7 @@ data OutputEvent
     | JobFinished JobId Text
     | JobIsDuplicate JobId Text
     | JobPreviouslyFinished JobId Text
+    | JobWasSkipped JobId
 
 data OutputFootnote = OutputFootnote
     { footnoteText :: Text
@@ -118,6 +119,10 @@ outputEvent out@Output {..} = liftIO . \case
     JobPreviouslyFinished jid status -> do
         forM_ outLogs $ \h -> outStrLn out h ("Previously finished " <> textJobId jid <> " (" <> status <> ")")
         forM_ outTest $ \h -> outStrLn out h ("job-previous " <> textJobId jid <> " " <> status)
+
+    JobWasSkipped jid -> do
+        forM_ outLogs $ \h -> outStrLn out h ("Skipped " <> textJobId jid)
+        forM_ outTest $ \h -> outStrLn out h ("job-skip " <> textJobId jid)
 
 outputFootnote :: Output -> Text -> IO OutputFootnote
 outputFootnote out@Output {..} footnoteText = do

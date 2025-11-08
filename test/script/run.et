@@ -22,6 +22,11 @@ def expect_success from p of job:
 def expect_previous_success from p of job:
     expect_previous_result from p of job result "done"
 
+def expect_skip from p of job:
+    let dummy = job == "" # TODO: forces string type
+    expect from p:
+        /job-skip $job/
+
 
 test RunWithoutRepo:
     node n
@@ -72,14 +77,16 @@ test RunWithRepo:
         spawn on n as p args [ "./minici.yaml", "run", "--range=$c0..$c2" ]
         expect_previous_result from p:
             of "$t1.success" result "done"
-            of "$t1.failure" result "failed"
         expect_result from p:
+            of "$t1.failure" result "failed"
             of "$t1.third" result "done"
             of "$t1.fourth" result "done"
 
         expect_previous_result from p:
             of "$t2.success" result "done"
+        expect_result from p:
             of "$t2.failure" result "failed"
+        expect_previous_result from p:
             of "$t2.third" result "done"
             of "$t2.fourth" result "done"
 
@@ -134,7 +141,7 @@ test RunExternalRepo:
     # Explicit jobfile within a git repo
     local:
         spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "--storage=.minici", "${scripts.path}/external.yaml", "run", "single" ]
-        expect_previous_success from p of "single.$first_root"
+        expect_success from p of "single.$first_root"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
@@ -303,5 +310,115 @@ test RunExplicitDependentJob:
 
         flush from p matching /note .*/
         flush from p matching /job-duplicate .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+
+test RunRerun:
+    node n
+    shell on n as git_init:
+        mkdir -p main
+        git -C main -c init.defaultBranch=master init -q
+        git -C main -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        cp "${scripts.path}/rerun.yaml" main/minici.yaml
+        git -C main add minici.yaml
+        git -C main -c user.name=test -c user.email=test commit -q --allow-empty -m 'minici'
+        git -C main rev-parse HEAD^{tree}
+
+    expect /([0-9a-f]+)/ from git_init capture t1
+
+    local:
+        spawn on n as p args [ "./main", "run", "$t1.third" ]
+        expect_success from p of "$t1.first"
+        expect_success from p of "$t1.second"
+        expect_result from p of "$t1.first_fail" result "failed"
+        expect_skip from p of "$t1.second_skip"
+        expect_skip from p of "$t1.third"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-explicit", "$t1.second" ]
+        expect_previous_success from p of "$t1.first"
+        expect_success from p of "$t1.second"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-failed", "$t1.second" ]
+        expect_previous_success from p of "$t1.first"
+        expect_previous_success from p of "$t1.second"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-all", "$t1.second" ]
+        expect_success from p of "$t1.first"
+        expect_success from p of "$t1.second"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-none", "$t1.second" ]
+        expect_previous_success from p of "$t1.first"
+        expect_previous_success from p of "$t1.second"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-explicit", "$t1.third" ]
+        expect_previous_success from p of "$t1.first"
+        expect_previous_success from p of "$t1.second"
+        expect_result from p of "$t1.first_fail" result "failed"
+        expect_skip from p of "$t1.second_skip"
+        expect_skip from p of "$t1.third"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-failed", "$t1.third" ]
+        expect_previous_success from p of "$t1.first"
+        expect_previous_success from p of "$t1.second"
+        expect_result from p of "$t1.first_fail" result "failed"
+        expect_skip from p of "$t1.second_skip"
+        expect_skip from p of "$t1.third"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-all", "$t1.third" ]
+        expect_success from p of "$t1.first"
+        expect_success from p of "$t1.second"
+        expect_result from p of "$t1.first_fail" result "failed"
+        expect_skip from p of "$t1.second_skip"
+        expect_skip from p of "$t1.third"
+
+        flush from p matching /note .*/
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "./main", "run", "--rerun-none", "$t1.third" ]
+        expect_previous_success from p of "$t1.first"
+        expect_previous_success from p of "$t1.second"
+        expect_previous_result from p of "$t1.first_fail" result "failed"
+        expect_skip from p of "$t1.second_skip"
+        expect_skip from p of "$t1.third"
+
+        flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")

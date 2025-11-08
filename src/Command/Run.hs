@@ -32,11 +32,18 @@ import Terminal
 data RunCommand = RunCommand RunOptions [ Text ]
 
 data RunOptions = RunOptions
-    { roRanges :: [ Text ]
+    { roRerun :: RerunOption
+    , roRanges :: [ Text ]
     , roSinceUpstream :: [ Text ]
     , roNewCommitsOn :: [ Text ]
     , roNewTags :: [ Pattern ]
     }
+
+data RerunOption
+    = RerunExplicit
+    | RerunFailed
+    | RerunAll
+    | RerunNone
 
 instance Command RunCommand where
     commandName _ = "run"
@@ -57,14 +64,27 @@ instance Command RunCommand where
 
     type CommandOptions RunCommand = RunOptions
     defaultCommandOptions _ = RunOptions
-        { roRanges = []
+        { roRerun = RerunExplicit
+        , roRanges = []
         , roSinceUpstream = []
         , roNewCommitsOn = []
         , roNewTags = []
         }
 
     commandOptions _ =
-        [ Option [] [ "range" ]
+        [ Option [] [ "rerun-explicit" ]
+            (NoArg (\opts -> opts { roRerun = RerunExplicit }))
+            "rerun jobs given explicitly on command line and their failed dependencies (default)"
+        , Option [] [ "rerun-failed" ]
+            (NoArg (\opts -> opts { roRerun = RerunFailed }))
+            "rerun failed jobs only"
+        , Option [] [ "rerun-all" ]
+            (NoArg (\opts -> opts { roRerun = RerunAll }))
+            "rerun all jobs"
+        , Option [] [ "rerun-none" ]
+            (NoArg (\opts -> opts { roRerun = RerunNone }))
+            "do not rerun any job"
+        , Option [] [ "range" ]
             (ReqArg (\val opts -> opts { roRanges = T.pack val : roRanges opts }) "<range>")
             "run jobs for commits in given range"
         , Option [] [ "since-upstream" ]
@@ -148,6 +168,7 @@ argumentJobSource names = do
         fullSet <- evalJobSet (map ( Nothing, ) jobtree) JobSet
             { jobsetId = ()
             , jobsetCommit = jcommit
+            , jobsetExplicitlyRequested = names
             , jobsetJobsEither = Right (configJobs config)
             }
         let selectedSet = fullSet { jobsetJobsEither = fmap (filter ((`elem` names) . jobName)) (jobsetJobsEither fullSet) }
@@ -160,7 +181,7 @@ refJobSource refs = do
     jobs <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
     sets <- cmdEvalWith id $ do
         forM jobs $ \( sid, js ) -> do
-            fillInDependencies $ JobSet sid Nothing (Right $ reverse js)
+            fillInDependencies $ JobSet sid Nothing (map jobId js) (Right $ reverse js)
     oneshotJobSource sets
   where
     addJobToList :: [ ( JobSetId, [ Job ] ) ] -> ( Job, JobSetId ) -> [ ( JobSetId, [ Job ] ) ]
@@ -175,6 +196,7 @@ loadJobSetFromRoot root commit = case root of
     JobRootConfig config -> return JobSet
         { jobsetId = ()
         , jobsetCommit = Just commit
+        , jobsetExplicitlyRequested = []
         , jobsetJobsEither = Right $ configJobs config
         }
 
@@ -332,7 +354,11 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
                 case jobsetJobsEither jobset of
                     Right jobs -> do
-                        outs <- runJobs mngr output jobs
+                        outs <- runJobs mngr output jobs $ case roRerun of
+                            RerunExplicit -> \jid status -> jid `elem` jobsetExplicitlyRequested jobset || jobStatusFailed status
+                            RerunFailed -> \_ status -> jobStatusFailed status
+                            RerunAll -> \_ _ -> True
+                            RerunNone -> \_ _ -> False
                         let findJob name = snd <$> find ((name ==) . jobName . fst) outs
                             statuses = map findJob names
                         forM_ (outputTerminal output) $ \tout -> do

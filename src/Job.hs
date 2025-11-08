@@ -213,8 +213,10 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
                             writeTVar jmRunningTasks . M.delete tid =<< readTVar jmRunningTasks
 
 
-runJobs :: JobManager -> Output -> [ Job ] -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
-runJobs mngr@JobManager {..} tout jobs = do
+runJobs :: JobManager -> Output -> [ Job ]
+        -> (JobId -> JobStatus JobOutput -> Bool) -- ^ Rerun condition
+        -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
+runJobs mngr@JobManager {..} tout jobs rerun = do
     results <- atomically $ do
         forM jobs $ \job -> do
             tid <- reserveTaskId mngr
@@ -250,11 +252,13 @@ runJobs mngr@JobManager {..} tout jobs = do
                     Nothing -> do
                         let jdir = jmDataDir </> jobStorageSubdir (jobId job)
                         readStatusFile tout job jdir >>= \case
-                            Just status -> do
+                            Just status | not (rerun (jobId job) status) -> do
                                 let status' = JobPreviousStatus status
                                 liftIO $ atomically $ writeTVar outVar status'
                                 return status'
-                            Nothing -> do
+                            mbStatus -> do
+                                when (isJust mbStatus) $ do
+                                    liftIO $ removeDirectoryRecursive jdir
                                 uses <- waitForUsedArtifacts tout job results outVar
                                 runManagedJob mngr tid (return JobCancelled) $ do
                                     liftIO $ atomically $ writeTVar outVar JobRunning
@@ -316,6 +320,7 @@ outputJobFinishedEvent :: Output -> Job -> JobStatus a -> IO ()
 outputJobFinishedEvent tout job = \case
     JobDuplicate _ s    -> outputEvent tout $ JobIsDuplicate (jobId job) (textJobStatus s)
     JobPreviousStatus s -> outputEvent tout $ JobPreviouslyFinished (jobId job) (textJobStatus s)
+    JobSkipped          -> outputEvent tout $ JobWasSkipped (jobId job)
     s                   -> outputEvent tout $ JobFinished (jobId job) (textJobStatus s)
 
 readStatusFile :: (MonadIO m, MonadCatch m) => Output -> Job -> FilePath -> m (Maybe (JobStatus JobOutput))
@@ -326,7 +331,7 @@ readStatusFile tout job jdir = do
             artifacts <- forM (jobArtifacts job) $ \( aoutName@(ArtifactName tname), _ ) -> do
                 let adir = jdir </> "artifacts" </> T.unpack tname
                     aoutStorePath = adir </> "data"
-                aoutWorkPath <- liftIO $ readFile (adir </> "path")
+                aoutWorkPath <- fmap T.unpack $ liftIO $ T.readFile (adir </> "path")
                 return ArtifactOutput {..}
 
             return JobOutput
@@ -394,7 +399,7 @@ runJob job uses checkoutPath jdir = do
             liftIO $ do
                 createDirectoryIfMissing True $ takeDirectory target
                 copyRecursiveForce path target
-                writeFile (adir </> "path") workPath
+                T.writeFile (adir </> "path") $ T.pack workPath
             return $ ArtifactOutput
                 { aoutName = name
                 , aoutWorkPath = workPath
