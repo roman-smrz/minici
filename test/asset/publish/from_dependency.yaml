@@ -1,0 +1,89 @@
+destination first:
+  url: ./first/dest
+
+destination second:
+  url: ./second/dest
+
+destination third:
+
+destination fourth:
+
+destination fifth:
+
+
+job gen:
+  checkout:
+
+  shell:
+    - mkdir dir
+    - mkdir dir2
+    - mkdir dir2/subdir
+    - touch x
+    - touch dir/y
+    - touch dir2/z2
+    - touch dir2/subdir/z
+
+  artifact x:
+    path: ./x
+
+  artifact y:
+    path: ./dir/y
+
+  artifact z:
+    path: ./dir2/subdir/z
+
+  artifact dir:
+    path: ./dir
+
+  artifact dir2:
+    path: ./dir2
+
+  artifact dir2_subdir:
+    path: ./dir2/subdir
+
+
+job publish:
+  shell:
+    - "true"
+
+  checkout:
+
+  publish:
+    - to: first
+      artifact: gen.x
+
+    - to: first
+      artifact: gen.y
+
+    - to: second
+      artifact: gen.z
+
+    - to: third
+      artifact: gen.dir
+
+    - to: third
+      artifact: gen.dir2_subdir
+
+    - to: fourth
+      artifact: gen.x
+      path: path/for/artifact
+
+    - to: fourth
+      artifact: gen.x
+      path: dir/for/artifact/
+
+    - to: fifth
+      artifact: gen.dir2_subdir
+      path: path/for/artifact
+
+    - to: fifth
+      artifact: gen.dir2_subdir
+      path: dir/for/artifact/
+
+    - to: fifth
+      artifact: gen.dir2
+      path: path2/for/artifact
+
+    - to: fifth
+      artifact: gen.dir2
+      path: dir2/for/artifact/

@@ -1,0 +1,26 @@
+module common
+
+
+export def expect_result from p of job result result:
+    let dummy = job == "" # TODO: forces string type
+    expect from p:
+        /job-start $job/
+        /job-finish $job ([a-z]+)/ capture done
+    guard (done == result)
+
+export def expect_previous_result from p of job result result:
+    let dummy = job == "" # TODO: forces string type
+    expect from p:
+        /job-previous $job ([a-z]+)/ capture done
+    guard (done == result)
+
+export def expect_success from p of job:
+    expect_result from p of job result "done"
+
+export def expect_previous_success from p of job:
+    expect_previous_result from p of job result "done"
+
+export def expect_skip from p of job:
+    let dummy = job == "" # TODO: forces string type
+    expect from p:
+        /job-skip $job/

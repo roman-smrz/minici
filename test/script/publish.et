@@ -1,0 +1,44 @@
+module publish
+
+import common
+
+
+asset scripts:
+    path: ../asset/publish
+
+
+test PublishFromDependency:
+    node n
+    shell on n:
+        mkdir workdir
+        cp ${scripts.path}/from_dependency.yaml workdir/minici.yaml
+
+    spawn on n as p args [ "--destination=second:second_override", "--destination=third:./third", "--destination=fourth:fourth/with_dir", "--destination=fifth:fifth/with_dir", "workdir/minici.yaml", "run", "publish" ]
+    expect_result from p:
+        of "gen" result "done"
+        of "publish" result "done"
+    local:
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    shell on n as listing:
+        find . -path ./workdir/.minici -prune -o -type f -print
+        echo DONE
+
+    expect from listing:
+        /.\/workdir\/minici.yaml/
+        /.\/workdir\/first\/dest\/x/
+        /.\/workdir\/first\/dest\/dir\/y/
+        /.\/second_override\/dir2\/subdir\/z/
+        /.\/third\/dir\/y/
+        /.\/third\/dir2\/subdir\/z/
+        /.\/fourth\/with_dir\/path\/for\/artifact/
+        /.\/fourth\/with_dir\/dir\/for\/artifact\/x/
+        /.\/fifth\/with_dir\/path\/for\/artifact\/z/
+        /.\/fifth\/with_dir\/dir\/for\/artifact\/subdir\/z/
+        /.\/fifth\/with_dir\/path2\/for\/artifact\/z2/
+        /.\/fifth\/with_dir\/path2\/for\/artifact\/subdir\/z/
+        /.\/fifth\/with_dir\/dir2\/for\/artifact\/dir2\/z2/
+        /.\/fifth\/with_dir\/dir2\/for\/artifact\/dir2\/subdir\/z/
+        /(.*)/ capture done
+    guard (done == "DONE")

@@ -28,6 +28,7 @@ import Command.Run
 import Command.Shell
 import Command.Subtree
 import Config
+import Destination
 import Output
 import Repo
 import Version
@@ -71,6 +72,17 @@ options =
                 _ -> throwError $ "--repo: invalid value ‘" <> value <> "’"
         ) "<repo>:<path>")
         ("override or declare repo path")
+    , Option [] [ "destination" ]
+        (ReqArg (\value opts ->
+            case span (/= ':') value of
+                ( dest, ':' : url ) -> return opts
+                    { optCommon = (optCommon opts)
+                        { optDestination = ( DestinationName $ T.pack dest, T.pack url ) : optDestination (optCommon opts)
+                        }
+                    }
+                _ -> throwError $ "--repo: invalid value ‘" <> value <> "’"
+        ) "<destination>:<url>")
+        ("override or declare destination")
     , Option [] [ "storage" ]
         (ReqArg (\value opts -> return opts { optStorage = Just value }) "<path>")
         "set storage path"
@@ -268,7 +280,28 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
                             exitFailure
         _ -> return []
 
+    let openDeclaredDestination dir ( name, url ) = do
+            dest <- openDestination dir url
+            return ( name, dest )
+
+    cmdlineDestinations <- forM (optDestination ciOptions) (openDeclaredDestination "")
+    cfgDestinations <- case ciJobRoot of
+        JobRootConfig config -> do
+            forM (configDestinations config) $ \decl -> do
+                case lookup (destinationName decl) cmdlineDestinations of
+                    Just dest -> return ( destinationName decl, dest )
+                    Nothing
+                        | Just url <- destinationUrl decl
+                        -> openDeclaredDestination (takeDirectory ciRootPath) ( destinationName decl, url )
+
+                        | otherwise
+                        -> do
+                            hPutStrLn stderr $ "No url defined for destination ‘" <> showDestinationName (destinationName decl) <> "’"
+                            exitFailure
+        _ -> return []
+
     let ciOtherRepos = configRepos ++ cmdlineRepos
+        ciDestinations = cfgDestinations ++ cmdlineDestinations
 
     outputTypes <- case optOutput gopts of
         Just types -> return types

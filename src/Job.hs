@@ -23,6 +23,7 @@ import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.IO.Class
 
+import Data.Containers.ListUtils
 import Data.List
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -42,6 +43,7 @@ import System.IO.Temp
 import System.Posix.Signals
 import System.Process
 
+import Destination
 import Job.Types
 import Output
 import Repo
@@ -286,12 +288,16 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
             outputJobFinishedEvent tout job $ either id id res
     return $ map (\( job, _, var ) -> ( job, var )) results
 
-waitForUsedArtifacts :: (MonadIO m, MonadError (JobStatus JobOutput) m) =>
-    Output ->
-    Job -> [ ( Job, TaskId, TVar (JobStatus JobOutput) ) ] -> TVar (JobStatus JobOutput) -> m [ ArtifactOutput ]
+waitForUsedArtifacts
+    :: (MonadIO m, MonadError (JobStatus JobOutput) m)
+    => Output -> Job
+    -> [ ( Job, TaskId, TVar (JobStatus JobOutput) ) ]
+    -> TVar (JobStatus JobOutput)
+    -> m [ ( ArtifactSpec, ArtifactOutput ) ]
 waitForUsedArtifacts tout job results outVar = do
     origState <- liftIO $ atomically $ readTVar outVar
-    ujobs <- forM (jobUses job) $ \(ujobName@(JobName tjobName), uartName) -> do
+    let artSpecs = nubOrd $ jobUses job ++ (map jpArtifact $ jobPublish job)
+    ujobs <- forM artSpecs $ \(ujobName@(JobName tjobName), uartName) -> do
         case find (\( j, _, _ ) -> jobName j == ujobName) results of
             Just ( _, _, var ) -> return ( var, ( ujobName, uartName ))
             Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Job '" <> tjobName <> "' not found")
@@ -309,10 +315,10 @@ waitForUsedArtifacts tout job results outVar = do
                else loop $ Just $ map fst ustatuses
     ustatuses <- liftIO $ loop Nothing
 
-    forM ustatuses $ \(ustatus, (JobName tjobName, uartName@(ArtifactName tartName))) -> do
+    forM ustatuses $ \(ustatus, spec@( JobName tjobName, uartName@(ArtifactName tartName)) ) -> do
         case jobResult ustatus of
             Just out -> case find ((==uartName) . aoutName) $ outArtifacts out of
-                Just art -> return art
+                Just art -> return ( spec, art )
                 Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact '" <> tjobName <> "." <> tartName <> "' not found")
             _ -> throwError JobSkipped
 
@@ -363,9 +369,9 @@ prepareJob dir job inner = do
         liftIO $ createDirectoryIfMissing True jdir
         inner checkoutPath
 
-runJob :: Job -> [ArtifactOutput] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
+runJob :: Job -> [ ( ArtifactSpec, ArtifactOutput) ] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
 runJob job uses checkoutPath jdir = do
-    liftIO $ forM_ uses $ \aout -> do
+    liftIO $ forM_ (filter ((`elem` jobUses job) . fst) uses) $ \( _, aout ) -> do
         let target = checkoutPath </> aoutWorkPath aout
         createDirectoryIfMissing True $ takeDirectory target
         copyRecursive (aoutStorePath aout) target
@@ -406,25 +412,15 @@ runJob job uses checkoutPath jdir = do
                 , aoutStorePath = target
                 }
 
+        forM_ (jobPublish job) $ \pub -> do
+            Just aout <- return $ lookup (jpArtifact pub) uses
+            let ppath = case jpPath pub of
+                    Just path
+                        | hasTrailingPathSeparator path -> path </> takeFileName (aoutWorkPath aout)
+                        | otherwise                     -> path
+                    Nothing                             -> aoutWorkPath aout
+            copyToDestination (aoutStorePath aout) (jpDestination pub) ppath
+
         return JobOutput
             { outArtifacts = artifacts
             }
-
-
-copyRecursive :: FilePath -> FilePath -> IO ()
-copyRecursive from to = do
-    doesDirectoryExist from >>= \case
-        False -> do
-            copyFile from to
-        True -> do
-            createDirectory to
-            content <- listDirectory from
-            forM_ content $ \name -> do
-                copyRecursive  (from </> name) (to </> name)
-
-copyRecursiveForce :: FilePath -> FilePath -> IO ()
-copyRecursiveForce from to = do
-    doesDirectoryExist to >>= \case
-        False -> return ()
-        True  -> removeDirectoryRecursive to
-    copyRecursive from to

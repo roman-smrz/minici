@@ -7,6 +7,7 @@ import Data.Text qualified as T
 import System.FilePath.Glob
 import System.Process
 
+import Destination
 import Repo
 
 
@@ -19,7 +20,8 @@ data Job' d = Job
     , jobCheckout :: [ JobCheckout d ]
     , jobRecipe :: [ CreateProcess ]
     , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
-    , jobUses :: [ ( JobName, ArtifactName ) ]
+    , jobUses :: [ ArtifactSpec ]
+    , jobPublish :: [ JobPublish d ]
     }
 
 type Job = Job' Evaluated
@@ -49,9 +51,21 @@ data JobCheckout d = JobCheckout
     , jcDestination :: Maybe FilePath
     }
 
+type family JobDestination d :: Type where
+    JobDestination Declared = DestinationName
+    JobDestination Evaluated = Destination
+
+data JobPublish d = JobPublish
+    { jpArtifact :: ArtifactSpec
+    , jpDestination :: JobDestination d
+    , jpPath :: Maybe FilePath
+    }
+
 
 data ArtifactName = ArtifactName Text
     deriving (Eq, Ord, Show)
+
+type ArtifactSpec = ( JobName, ArtifactName )
 
 
 data JobSet' d = JobSet

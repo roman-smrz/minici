@@ -97,6 +97,7 @@ parseJob name node = flip (withMap "Job") node $ \j -> do
         ]
     jobArtifacts <- parseArtifacts j
     jobUses <- maybe (return []) parseUses =<< j .:? "uses"
+    jobPublish <- maybe (return []) (parsePublish jobName) =<< j .:? "publish"
     return Job {..}
 
 parseSingleCheckout :: Node Pos -> Parser [ JobCheckout Declared ]
@@ -142,6 +143,18 @@ parseUses = withSeq "Uses list" $ mapM $
     withStr "Artifact reference" $ \text -> do
         [job, art] <- return $ T.split (== '.') text
         return (JobName job, ArtifactName art)
+
+parsePublish :: JobName -> Node Pos -> Parser [ JobPublish Declared ]
+parsePublish ownName = withSeq "Publish list" $ mapM $
+    withMap "Publish specification" $ \m -> do
+        artifact <- m .: "artifact"
+        jpArtifact <- case T.split (== '.') artifact of
+            [ job, art ] -> return ( JobName job, ArtifactName art )
+            [ art ] -> return ( ownName, ArtifactName art )
+            _ -> mzero
+        jpDestination <- DestinationName <$> m .: "to"
+        jpPath <- fmap T.unpack <$> m .:? "path"
+        return JobPublish {..}
 
 
 parseRepo :: Text -> Node Pos -> Parser DeclaredRepo

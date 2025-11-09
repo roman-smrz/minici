@@ -30,6 +30,7 @@ import System.Exit
 import System.IO
 
 import Config
+import Destination
 import Eval
 import Output
 import Repo
@@ -37,12 +38,14 @@ import Repo
 data CommonOptions = CommonOptions
     { optJobs :: Int
     , optRepo :: [ ( RepoName, FilePath ) ]
+    , optDestination :: [ ( DestinationName, Text ) ]
     }
 
 defaultCommonOptions :: CommonOptions
 defaultCommonOptions = CommonOptions
     { optJobs = 2
     , optRepo = []
+    , optDestination = []
     }
 
 class CommandArgumentsType (CommandArguments c) => Command c where
@@ -102,6 +105,7 @@ data CommandInput = CommandInput
     , ciJobRoot :: JobRoot
     , ciContainingRepo :: Maybe Repo
     , ciOtherRepos :: [ ( RepoName, Repo ) ]
+    , ciDestinations :: [ ( DestinationName, Destination ) ]
     , ciOutput :: Output
     , ciStorageDir :: FilePath
     }
@@ -137,6 +141,7 @@ getEvalInput = CommandExec $ do
     eiCurrentIdRev <- return []
     eiContainingRepo <- asks ciContainingRepo
     eiOtherRepos <- asks ciOtherRepos
+    eiDestinations <- asks ciDestinations
     return EvalInput {..}
 
 cmdEvalWith :: (EvalInput -> EvalInput) -> Eval a -> CommandExec a

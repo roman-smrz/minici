@@ -24,6 +24,7 @@ import Data.Text qualified as T
 import System.FilePath
 
 import Config
+import Destination
 import Job.Types
 import Repo
 
@@ -33,6 +34,7 @@ data EvalInput = EvalInput
     , eiCurrentIdRev :: [ JobIdPart ]
     , eiContainingRepo :: Maybe Repo
     , eiOtherRepos :: [ ( RepoName, Repo ) ]
+    , eiDestinations :: [ ( DestinationName, Destination ) ]
     }
 
 data EvalError
@@ -105,6 +107,11 @@ evalJob revisionOverrides dset decl = do
                     ]
             }
 
+    destinations <- forM (jobPublish decl) $ \dpublish -> do
+        case lookup (jpDestination dpublish) eiDestinations of
+            Just dest -> return $ dpublish { jpDestination = dest }
+            Nothing -> throwError $ OtherEvalError $ "no url defined for destination ‘" <> textDestinationName (jpDestination dpublish) <> "’"
+
     let otherRepoIds = map (\( repo, ( subtree, tree )) -> JobIdTree (fst <$> repo) subtree (treeId tree)) otherRepoTrees
     return
         ( Job
@@ -114,6 +121,7 @@ evalJob revisionOverrides dset decl = do
             , jobRecipe = jobRecipe decl
             , jobArtifacts = jobArtifacts decl
             , jobUses = jobUses decl
+            , jobPublish = destinations
             }
         , JobSetId $ reverse $ reverse otherRepoIds ++ eiCurrentIdRev
         )
@@ -265,7 +273,7 @@ fillInDependencies jset = do
         = gather djobs cur rest
 
         | Just djob <- find ((name ==) . jobName) djobs
-        = gather djobs (S.insert name cur) $ map fst (jobUses djob) ++ rest
+        = gather djobs (S.insert name cur) $ map fst (jobUses djob) ++ map (fst . jpArtifact) (jobPublish djob) ++ rest
 
         | otherwise
         = throwError $ OtherEvalError $ "dependency ‘" <> textJobName name <> "’ not found"
