@@ -26,6 +26,7 @@ import System.FilePath
 import System.FilePath.Glob
 import System.Process
 
+import Destination
 import Job.Types
 import Repo
 
@@ -42,18 +43,21 @@ data JobRoot
 data Config = Config
     { configJobs :: [ DeclaredJob ]
     , configRepos :: [ DeclaredRepo ]
+    , configDestinations :: [ DeclaredDestination ]
     }
 
 instance Semigroup Config where
     a <> b = Config
         { configJobs = configJobs a ++ configJobs b
         , configRepos = configRepos a ++ configRepos b
+        , configDestinations = configDestinations a ++ configDestinations b
         }
 
 instance Monoid Config where
     mempty = Config
         { configJobs = []
         , configRepos = []
+        , configDestinations = []
         }
 
 instance FromYAML Config where
@@ -72,6 +76,9 @@ instance FromYAML Config where
                 | [ "repo", name ] <- T.words tag -> do
                     repo <- parseRepo name node
                     return $ config { configRepos = configRepos config ++ [ repo ] }
+                | [ "destination", name ] <- T.words tag -> do
+                    destination <- parseDestination name node
+                    return $ config { configDestinations = configDestinations config ++ [ destination ] }
             _ -> return config
 
 parseJob :: Text -> Node Pos -> Parser DeclaredJob
@@ -143,6 +150,14 @@ parseRepo name node = choice
     , flip (withMap "Repo") node $ \r -> DeclaredRepo
         <$> pure (RepoName name)
         <*> (fmap T.unpack <$> r .:? "path")
+    ]
+
+parseDestination :: Text -> Node Pos -> Parser DeclaredDestination
+parseDestination name node = choice
+    [ flip (withNull "Destination") node $ return $ DeclaredDestination (DestinationName name) Nothing
+    , flip (withMap "Destination") node $ \r -> DeclaredDestination
+        <$> pure (DestinationName name)
+        <*> (r .:? "url")
     ]
 
 
