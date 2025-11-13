@@ -1,0 +1,22 @@
+destination dest:
+
+
+job gen_publish:
+  checkout:
+
+  shell:
+    - touch x
+    - touch y
+
+  artifact x:
+    path: x
+
+  artifact y:
+    path: y
+
+  publish:
+    - to: dest
+      artifact: x
+
+    - to: dest
+      artifact: gen_publish.y

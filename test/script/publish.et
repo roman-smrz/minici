@@ -42,3 +42,28 @@ test PublishFromDependency:
         /.\/fifth\/with_dir\/dir2\/for\/artifact\/dir2\/subdir\/z/
         /(.*)/ capture done
     guard (done == "DONE")
+
+
+test PublishFromSelf:
+    node n
+    shell on n:
+        mkdir workdir
+        cp ${scripts.path}/from_self.yaml workdir/minici.yaml
+
+    spawn on n as p args [ "--destination=dest:destination", "workdir/minici.yaml", "run", "gen_publish" ]
+    expect_result from p:
+        of "gen_publish" result "done"
+    local:
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    shell on n as listing:
+        find . -path ./workdir/.minici -prune -o -type f -print
+        echo DONE
+
+    expect from listing:
+        /.\/workdir\/minici.yaml/
+        /.\/destination\/x/
+        /.\/destination\/y/
+        /(.*)/ capture done
+    guard (done == "DONE")

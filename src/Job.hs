@@ -296,7 +296,12 @@ waitForUsedArtifacts
     -> m [ ( ArtifactSpec, ArtifactOutput ) ]
 waitForUsedArtifacts tout job results outVar = do
     origState <- liftIO $ atomically $ readTVar outVar
-    let artSpecs = nubOrd $ jobUses job ++ (map jpArtifact $ jobPublish job)
+    let ( selfSpecs, artSpecs ) = partition ((jobName job ==) . fst) $ nubOrd $ jobUses job ++ (map jpArtifact $ jobPublish job)
+
+    forM_ selfSpecs $ \( _, artName@(ArtifactName tname) ) -> do
+        when (not (artName `elem` map fst (jobArtifacts job))) $ do
+            throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact ‘" <> tname <> "’ not produced by the job")
+
     ujobs <- forM artSpecs $ \(ujobName@(JobName tjobName), uartName) -> do
         case find (\( j, _, _ ) -> jobName j == ujobName) results of
             Just ( _, _, var ) -> return ( var, ( ujobName, uartName ))
@@ -413,7 +418,7 @@ runJob job uses checkoutPath jdir = do
                 }
 
         forM_ (jobPublish job) $ \pub -> do
-            Just aout <- return $ lookup (jpArtifact pub) uses
+            Just aout <- return $ lookup (jpArtifact pub) $ map (\aout -> ( ( jobName job, aoutName aout ), aout )) artifacts ++ uses
             let ppath = case jpPath pub of
                     Just path
                         | hasTrailingPathSeparator path -> path </> takeFileName (aoutWorkPath aout)
