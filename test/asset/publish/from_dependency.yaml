@@ -43,11 +43,6 @@ job gen:
 
 
 job publish:
-  shell:
-    - "true"
-
-  checkout:
-
   publish:
     - to: first
       artifact: gen.x

@@ -382,7 +382,7 @@ runJob job uses checkoutPath jdir = do
         copyRecursive (aoutStorePath aout) target
 
     bracket (liftIO $ openFile (jdir </> "log") WriteMode) (liftIO . hClose) $ \logs -> do
-        forM_ (jobRecipe job) $ \p -> do
+        forM_ (fromMaybe [] $ jobRecipe job) $ \p -> do
             (Just hin, _, _, hp) <- liftIO $ createProcess_ "" p
                 { cwd = Just checkoutPath
                 , std_in = CreatePipe

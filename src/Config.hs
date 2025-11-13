@@ -85,15 +85,18 @@ parseJob :: Text -> Node Pos -> Parser DeclaredJob
 parseJob name node = flip (withMap "Job") node $ \j -> do
     let jobName = JobName name
         jobId = jobName
+    jobRecipe <- choice
+        [ fmap Just $ cabalJob =<< j .: "cabal"
+        , fmap Just $ shellJob =<< j .: "shell"
+        , return Nothing
+        ]
     jobCheckout <- choice
         [ parseSingleCheckout =<< j .: "checkout"
         , parseMultipleCheckouts =<< j .: "checkout"
         , withNull "no checkout" (return []) =<< j .: "checkout"
-        , return [ JobCheckout Nothing Nothing Nothing ]
-        ]
-    jobRecipe <- choice
-        [ cabalJob =<< j .: "cabal"
-        , shellJob =<< j .: "shell"
+        , return $ if isJust jobRecipe
+                     then [ JobCheckout Nothing Nothing Nothing ]
+                     else []
         ]
     jobArtifacts <- parseArtifacts j
     jobUses <- maybe (return []) parseUses =<< j .:? "uses"
