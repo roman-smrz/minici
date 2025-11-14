@@ -10,7 +10,6 @@ module Destination (
     copyRecursiveForce,
 ) where
 
-import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Text (Text)
@@ -18,6 +17,8 @@ import Data.Text qualified as T
 
 import System.FilePath
 import System.Directory
+
+import FileUtils
 
 
 data Destination
@@ -51,22 +52,3 @@ copyToDestination source (FilesystemDestination base) inner = do
     liftIO $ do
         createDirectoryIfMissing True $ takeDirectory target
         copyRecursiveForce source target
-
-
-copyRecursive :: FilePath -> FilePath -> IO ()
-copyRecursive from to = do
-    doesDirectoryExist from >>= \case
-        False -> do
-            copyFile from to
-        True -> do
-            createDirectory to
-            content <- listDirectory from
-            forM_ content $ \name -> do
-                copyRecursive  (from </> name) (to </> name)
-
-copyRecursiveForce :: FilePath -> FilePath -> IO ()
-copyRecursiveForce from to = do
-    doesDirectoryExist to >>= \case
-        False -> return ()
-        True  -> removeDirectoryRecursive to
-    copyRecursive from to
