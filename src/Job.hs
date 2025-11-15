@@ -254,7 +254,7 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                     Nothing -> do
                         let jdir = jmDataDir </> jobStorageSubdir (jobId job)
                         readStatusFile tout job jdir >>= \case
-                            Just status | not (rerun (jobId job) status) -> do
+                            Just status | status /= JobCancelled && not (rerun (jobId job) status) -> do
                                 let status' = JobPreviousStatus status
                                 liftIO $ atomically $ writeTVar outVar status'
                                 return status'
