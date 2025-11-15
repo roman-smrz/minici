@@ -70,6 +70,9 @@ executable minici
     autogen-modules:
         Paths_minici
 
+    c-sources:
+        src/FileUtils.c
+
     default-extensions:
         DefaultSignatures
         ExistentialQuantification
