@@ -333,8 +333,10 @@ cmdRun (RunCommand RunOptions {..} args) = do
         threadCount <- newTVarIO (0 :: Int)
         let changeCount f = atomically $ do
                 writeTVar threadCount . f =<< readTVar threadCount
-        let waitForJobs = atomically $ do
-                flip when retry . (0 <) =<< readTVar threadCount
+        let waitForJobs = do
+                atomically $ do
+                    flip when retry . (0 <) =<< readTVar threadCount
+                waitForRemainingTasks mngr
 
         let loop _ Nothing = return ()
             loop names (Just ( [], next )) = do
