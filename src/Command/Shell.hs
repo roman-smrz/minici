@@ -5,6 +5,7 @@ module Command.Shell (
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.Bifunctor
 import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -37,7 +38,8 @@ instance Command ShellCommand where
 cmdShell :: ShellCommand -> CommandExec ()
 cmdShell (ShellCommand ref) = do
     einput <- getEvalInput
-    job <- either (tfail . textEvalError) (return . fst) =<<
+    [ job ] <- either tfail return =<<
+        return . either (Left . textEvalError) (first T.pack . jobsetJobsEither) =<<
         liftIO (runEval (evalJobReference ref) einput)
     sh <- fromMaybe "/bin/sh" <$> liftIO (lookupEnv "SHELL")
     storageDir <- getStorageDir

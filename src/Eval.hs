@@ -139,6 +139,7 @@ evalJobSet revisionOverrides decl = do
                     map (\jid -> jobId . snd <$> find ((jid ==) . jobId . fst) declEval) $ jobsetExplicitlyRequested decl
     return JobSet
         { jobsetId = JobSetId $ reverse $ eiCurrentIdRev
+        , jobsetConfig = jobsetConfig decl
         , jobsetCommit = jobsetCommit decl
         , jobsetExplicitlyRequested = explicit
         , jobsetJobsEither = jobs
@@ -155,10 +156,10 @@ evalRepo (Just name) = asks (lookup name . eiOtherRepos) >>= \case
     Nothing -> throwError $ OtherEvalError $ "repo ‘" <> textRepoName name <> "’ not defined"
 
 
-canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval ( Job, JobSetId )
+canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval JobSet
 canonicalJobName (r : rs) config mbDefaultRepo = do
     let name = JobName r
-        dset = JobSet () Nothing [] $ Right $ configJobs config
+        dset = JobSet () (Just config) Nothing [] $ Right $ configJobs config
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
             otherRepos <- collectOtherRepos dset djob
@@ -169,7 +170,14 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
                 _ -> return ()
-            evalJob (maybe id ((:) . ( Nothing, )) mbDefaultRepo $ overrides) dset djob
+            ( job, sid ) <- evalJob (maybe id ((:) . ( Nothing, )) mbDefaultRepo $ overrides) dset djob
+            return JobSet
+                { jobsetId = sid
+                , jobsetConfig = Just config
+                , jobsetCommit = Nothing
+                , jobsetExplicitlyRequested = []
+                , jobsetJobsEither = Right [ job ]
+                }
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
 canonicalJobName [] _ _ = throwError $ OtherEvalError "expected job name"
 
@@ -182,14 +190,14 @@ readTreeFromIdRef (r : rs) subdir repo = do
             Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
 readTreeFromIdRef [] _ _ = throwError $ OtherEvalError $ "expected commit or tree reference"
 
-canonicalCommitConfig :: [ Text ] -> Repo -> Eval ( Job, JobSetId )
+canonicalCommitConfig :: [ Text ] -> Repo -> Eval JobSet
 canonicalCommitConfig rs repo = do
     ( tree, rs' ) <- readTreeFromIdRef rs "" repo
     config <- either fail return =<< loadConfigForCommit tree
     local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing "" (treeId tree) : eiCurrentIdRev ei }) $
         canonicalJobName rs' config (Just tree)
 
-evalJobReference :: JobRef -> Eval ( Job, JobSetId )
+evalJobReference :: JobRef -> Eval JobSet
 evalJobReference (JobRef rs) =
     asks eiJobRoot >>= \case
         JobRootRepo defRepo -> do
@@ -201,7 +209,7 @@ evalJobReference (JobRef rs) =
 jobsetFromConfig :: [ JobIdPart ] -> Config -> Maybe Tree -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )
 jobsetFromConfig sid config _ = do
     EvalInput {..} <- ask
-    let dset = JobSet () Nothing [] $ Right $ configJobs config
+    let dset = JobSet () (Just config) Nothing [] $ Right $ configJobs config
     otherRepos <- forM sid $ \case
         JobIdName name -> do
             throwError $ OtherEvalError $ "expected tree id, not a job name ‘" <> textJobName name <> "’"

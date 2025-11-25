@@ -7,6 +7,7 @@ import Data.Text qualified as T
 import System.FilePath.Glob
 import System.Process
 
+import {-# SOURCE #-} Config
 import Destination
 import Repo
 
@@ -70,6 +71,7 @@ type ArtifactSpec = ( JobName, ArtifactName )
 
 data JobSet' d = JobSet
     { jobsetId :: JobSetId' d
+    , jobsetConfig :: Maybe Config
     , jobsetCommit :: Maybe Commit
     , jobsetExplicitlyRequested :: [ JobId' d ]
     , jobsetJobsEither :: Either String [ Job' d ]

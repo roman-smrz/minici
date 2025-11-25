@@ -167,6 +167,7 @@ argumentJobSource names = do
     jset <- cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei }) $ do
         fullSet <- evalJobSet (map ( Nothing, ) jobtree) JobSet
             { jobsetId = ()
+            , jobsetConfig = Just config
             , jobsetCommit = jcommit
             , jobsetExplicitlyRequested = names
             , jobsetJobsEither = Right (configJobs config)
@@ -178,23 +179,24 @@ argumentJobSource names = do
 refJobSource :: [ JobRef ] -> CommandExec JobSource
 refJobSource [] = emptyJobSource
 refJobSource refs = do
-    jobs <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
+    jsets <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
     sets <- cmdEvalWith id $ do
-        forM jobs $ \( sid, js ) -> do
-            fillInDependencies $ JobSet sid Nothing (map jobId js) (Right $ reverse js)
+        forM jsets $ \jset -> do
+            fillInDependencies $ jset { jobsetExplicitlyRequested = either (const []) (map jobId) $ jobsetJobsEither jset }
     oneshotJobSource sets
   where
-    addJobToList :: [ ( JobSetId, [ Job ] ) ] -> ( Job, JobSetId ) -> [ ( JobSetId, [ Job ] ) ]
-    addJobToList (( sid, js ) : rest ) ( job, jsid )
-        | sid == jsid             = ( sid, job : js ) : rest
-        | otherwise               = ( sid, js ) : addJobToList rest ( job, jsid )
-    addJobToList [] ( job, jsid ) = [ ( jsid, [ job ] ) ]
+    addJobToList :: [ JobSet ] -> JobSet -> [ JobSet ]
+    addJobToList (cur : rest) jset
+        | jobsetId cur == jobsetId jset = cur { jobsetJobsEither = (++) <$> (fmap reverse $ jobsetJobsEither jset) <*> (jobsetJobsEither cur) } : rest
+        | otherwise                     = cur : addJobToList rest jset
+    addJobToList [] jset                = [ jset ]
 
 loadJobSetFromRoot :: (MonadIO m, MonadFail m) => JobRoot -> Commit -> m DeclaredJobSet
 loadJobSetFromRoot root commit = case root of
     JobRootRepo _ -> loadJobSetForCommit commit
     JobRootConfig config -> return JobSet
         { jobsetId = ()
+        , jobsetConfig = Just config
         , jobsetCommit = Just commit
         , jobsetExplicitlyRequested = []
         , jobsetJobsEither = Right $ configJobs config
