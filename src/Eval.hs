@@ -81,7 +81,9 @@ collectOtherRepos dset decl = do
                 ]
     let commonSubdir reporev = joinPath $ foldr1 commonPrefix $
             map (maybe [] splitDirectories . jcSubtree) . filter ((reporev ==) . jcRepo) $ checkouts
-    return $ map (\r -> ( r, commonSubdir r )) . nub . map jcRepo $ checkouts
+    let canonicalRepoOrder = Nothing : maybe [] (map (Just . repoName) . configRepos) (jobsetConfig dset)
+        getCheckoutsForName rname = map (\r -> ( r, commonSubdir r )) $ nub $ filter ((rname ==) . fmap fst) $ map jcRepo checkouts
+    return $ concatMap getCheckoutsForName canonicalRepoOrder
 
 
 evalJob :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> DeclaredJob -> Eval ( Job, JobSetId )

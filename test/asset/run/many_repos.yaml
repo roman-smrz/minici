@@ -1,0 +1,23 @@
+repo r1:
+repo r2:
+repo r3:
+repo r4:
+
+job first:
+  checkout:
+    - repo: r1
+      dest: d1
+    - repo: r4
+      dest: d4b
+    - repo: r3
+      dest: d3
+    - repo: r2
+      dest: d2
+    - repo: r4
+      dest: d4
+
+  shell:
+    - touch some_file
+
+  artifact out:
+    path: some_file
