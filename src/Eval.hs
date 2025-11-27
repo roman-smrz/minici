@@ -114,7 +114,10 @@ evalJob revisionOverrides dset decl = do
             Just dest -> return $ dpublish { jpDestination = dest }
             Nothing -> throwError $ OtherEvalError $ "no url defined for destination ‘" <> textDestinationName (jpDestination dpublish) <> "’"
 
-    let otherRepoIds = map (\( repo, ( subtree, tree )) -> JobIdTree (fst <$> repo) subtree (treeId tree)) otherRepoTrees
+    let otherRepoIds = flip mapMaybe otherRepoTrees $ \case
+            ( repo, ( subtree, tree )) -> do
+                guard $ maybe True (isNothing . snd) repo -- use only checkouts without explicit revision in job id
+                Just $ JobIdTree (fst <$> repo) subtree (treeId tree)
     return
         ( Job
             { jobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId decl) : eiCurrentIdRev
@@ -166,9 +169,13 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
         Just djob -> do
             otherRepos <- collectOtherRepos dset djob
             ( overrides, rs' ) <- (\f -> foldM f ( [], rs ) otherRepos) $
-                \( overrides, crs ) ( mbrepo, path ) -> do
-                    ( tree, crs' ) <- readTreeFromIdRef crs path =<< evalRepo (fst <$> mbrepo)
-                    return ( ( fst <$> mbrepo, tree ) : overrides, crs' )
+                \( overrides, crs ) ( mbrepo, path ) -> if
+                    | Just ( _, Just _ ) <- mbrepo -> do
+                        -- use only checkouts without explicit revision in job id
+                        return ( overrides, crs )
+                    | otherwise -> do
+                        ( tree, crs' ) <- readTreeFromIdRef crs path =<< evalRepo (fst <$> mbrepo)
+                        return ( ( fst <$> mbrepo, tree ) : overrides, crs' )
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
                 _ -> return ()

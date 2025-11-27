@@ -419,6 +419,10 @@ test RunWithManyRepos:
         touch dir_r1/file_r1
         git -C dir_r1 add file_r1
         git -C dir_r1 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r1'
+        git -C dir_r1 -c user.name=test -c user.email=test tag tag1 -m tag1
+        touch dir_r1/file2_r1
+        git -C dir_r1 add file2_r1
+        git -C dir_r1 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r1'
         git -C dir_r1 rev-parse HEAD
         git -C dir_r1 rev-parse HEAD^{tree}
 
@@ -428,12 +432,20 @@ test RunWithManyRepos:
         touch dir_r2/file_r2
         git -C dir_r2 add file_r2
         git -C dir_r2 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r2'
+        git -C dir_r2 -c user.name=test -c user.email=test tag tag1 -m tag1
+        touch dir_r2/file2_r2
+        git -C dir_r2 add file2_r2
+        git -C dir_r2 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r2'
         git -C dir_r2 rev-parse HEAD
         git -C dir_r2 rev-parse HEAD^{tree}
 
         mkdir -p dir_r3
         git -C dir_r3 -c init.defaultBranch=master init -q
         git -C dir_r3 -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        touch dir_r3/file2_r3
+        git -C dir_r3 add file2_r3
+        git -C dir_r3 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r3'
+        git -C dir_r3 -c user.name=test -c user.email=test tag tag1 -m tag1
         touch dir_r3/file_r3
         git -C dir_r3 add file_r3
         git -C dir_r3 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r3'
@@ -467,3 +479,11 @@ test RunWithManyRepos:
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "./main", "run", "--rerun-all", "$mc.first.$r1c.$r2t.$r3c.$r4t" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "./main", "run", "--rerun-all", "first_manual_revision" ]
+        expect_success from p of "$mt.first_manual_revision.$r1t.$r2t.$r4t"
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "./main", "run", "--rerun-all", "$mc.first_manual_revision.$r1c.$r2t.$r4t" ]
+        expect_success from p of "$mt.first_manual_revision.$r1t.$r2t.$r4t"

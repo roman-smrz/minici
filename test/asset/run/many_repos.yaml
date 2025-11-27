@@ -21,3 +21,29 @@ job first:
 
   artifact out:
     path: some_file
+
+job first_manual_revision:
+  checkout:
+    - repo: r1
+      dest: d1
+    - repo: r1
+      dest: d1b
+      revision: tag1
+    - repo: r2
+      dest: d2b
+      revision: tag1
+    - repo: r4
+      dest: d4b
+    - repo: r3
+      dest: d3
+      revision: tag1
+    - repo: r2
+      dest: d2
+    - repo: r4
+      dest: d4
+
+  shell:
+    - touch some_file
+
+  artifact out:
+    path: some_file
