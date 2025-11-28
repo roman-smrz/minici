@@ -47,3 +47,8 @@ job first_manual_revision:
 
   artifact out:
     path: some_file
+
+
+job dependent:
+  uses:
+    - first.out
