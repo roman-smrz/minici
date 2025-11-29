@@ -4,6 +4,8 @@ repo r3:
 repo r4:
 repo r5:
 
+destination d1:
+
 job first:
   checkout:
     - repo: r1
@@ -75,6 +77,12 @@ job dependent:
 
   artifact out:
     path: some_other_file
+
+
+job dependent_publish:
+  publish:
+    - to: d1
+      artifact: first.out
 
 
 job transitive:

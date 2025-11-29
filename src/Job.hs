@@ -23,7 +23,6 @@ import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.IO.Class
 
-import Data.Containers.ListUtils
 import Data.List
 import Data.Map (Map)
 import Data.Map qualified as M
@@ -304,7 +303,7 @@ waitForUsedArtifacts
     -> m [ ( ArtifactSpec, ArtifactOutput ) ]
 waitForUsedArtifacts tout job results outVar = do
     origState <- liftIO $ atomically $ readTVar outVar
-    let ( selfSpecs, artSpecs ) = partition ((jobName job ==) . fst) $ nubOrd $ jobUses job ++ (map jpArtifact $ jobPublish job)
+    let ( selfSpecs, artSpecs ) = partition ((jobName job ==) . fst) $ jobRequiredArtifacts job
 
     forM_ selfSpecs $ \( _, artName@(ArtifactName tname) ) -> do
         when (not (artName `elem` map fst (jobArtifacts job))) $ do

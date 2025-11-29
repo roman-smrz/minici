@@ -1,5 +1,6 @@
 module Job.Types where
 
+import Data.Containers.ListUtils
 import Data.Kind
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -40,6 +41,9 @@ stringJobName (JobName name) = T.unpack name
 
 textJobName :: JobName -> Text
 textJobName (JobName name) = name
+
+jobRequiredArtifacts :: Job' d -> [ ArtifactSpec ]
+jobRequiredArtifacts job = nubOrd $ jobUses job ++ (map jpArtifact $ jobPublish job)
 
 
 type family JobRepo d :: Type where

@@ -69,7 +69,7 @@ collectOtherRepos dset decl = do
     let gatherDependencies seen (d : ds)
             | d `elem` seen = gatherDependencies seen ds
             | Just job <- find ((d ==) . jobName) jobs
-                            = gatherDependencies (d : seen) (map fst (jobUses job) ++ ds)
+                            = gatherDependencies (d : seen) (map fst (jobRequiredArtifacts job) ++ ds)
             | otherwise     = gatherDependencies (d : seen) ds
         gatherDependencies seen [] = seen
 

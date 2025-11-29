@@ -484,45 +484,52 @@ test RunWithManyRepos:
     expect /([0-9a-f]+)/ from git_init capture r5t
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "first" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "first" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "$mc.first.$r1c.$r2t.$r3c.$r4t" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.first.$r1c.$r2t.$r3c.$r4t" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "first_manual_revision" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "first_manual_revision" ]
         expect_success from p of "$mt.first_manual_revision.$r1t.$r2t.$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "$mc.first_manual_revision.$r1c.$r2t.$r4t" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.first_manual_revision.$r1c.$r2t.$r4t" ]
         expect_success from p of "$mt.first_manual_revision.$r1t.$r2t.$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "dependent" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "dependent" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "$mc.dependent.$r1c.$r2t.$r3c.$r4t" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.dependent.$r1c.$r2t.$r3c.$r4t" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "transitive" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "dependent_publish" ]
+        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "$mt.dependent_publish.$r1t.$r2t.$r3t.$r4t"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "transitive" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.transitive.$r1t.$r2t.$r3t.$r4t"
@@ -530,7 +537,7 @@ test RunWithManyRepos:
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "$mc.transitive.$r1c.$r2t.$r3c.$r4t" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.transitive.$r1c.$r2t.$r3c.$r4t" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.transitive.$r1t.$r2t.$r3t.$r4t"
@@ -538,7 +545,7 @@ test RunWithManyRepos:
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "combined" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "combined" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.second.$r2t.$r3t.$r5t"
         expect_success from p of "$mt.combined.$r1t.$r2t.$r3t.$r4t.$r5t"
@@ -546,7 +553,7 @@ test RunWithManyRepos:
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "./main", "run", "--rerun-all", "combined_transitive" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "combined_transitive" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.second.$r2t.$r3t.$r5t"
         expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
