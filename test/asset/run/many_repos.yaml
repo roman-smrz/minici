@@ -2,6 +2,7 @@ repo r1:
 repo r2:
 repo r3:
 repo r4:
+repo r5:
 
 job first:
   checkout:
@@ -49,6 +50,51 @@ job first_manual_revision:
     path: some_file
 
 
+job second:
+  checkout:
+    - repo: r2
+      dest: d2
+    - repo: r5
+      dest: d5
+    - repo: r3
+      dest: d3
+
+  shell:
+    - touch second_file
+
+  artifact out:
+    path: second_file
+
+
 job dependent:
   uses:
     - first.out
+
+  shell:
+    - mv some_file some_other_file
+
+  artifact out:
+    path: some_other_file
+
+
+job transitive:
+  uses:
+    - dependent.out
+
+  artifact out:
+    path: some_other_file
+
+
+job combined:
+  uses:
+    - first.out
+    - second.out
+
+  artifact out:
+    path: second_file
+
+
+job combined_transitive:
+  uses:
+    - combined.out
+    - transitive.out

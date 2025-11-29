@@ -65,20 +65,24 @@ isDefaultRepoMissingInId djob
 
 collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), FilePath ) ]
 collectOtherRepos dset decl = do
-    let dependencies = map fst $ jobUses decl
+    jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
+    let gatherDependencies seen (d : ds)
+            | d `elem` seen = gatherDependencies seen ds
+            | Just job <- find ((d ==) . jobName) jobs
+                            = gatherDependencies (d : seen) (map fst (jobUses job) ++ ds)
+            | otherwise     = gatherDependencies (d : seen) ds
+        gatherDependencies seen [] = seen
+
+    let dependencies = gatherDependencies [] [ jobName decl ]
     dependencyRepos <- forM dependencies $ \name -> do
-        jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
         job <- maybe (throwError $ OtherEvalError $ "job ‘" <> textJobName name <> "’ not found") return . find ((name ==) . jobName) $ jobs
         return $ jobCheckout job
 
     missingDefault <- isDefaultRepoMissingInId decl
 
     let checkouts =
-            (if missingDefault then id else (filter (isJust . jcRepo))) $
-            concat
-                [ jobCheckout decl
-                , concat dependencyRepos
-                ]
+            (if missingDefault then id else filter (isJust . jcRepo)) $
+                concat dependencyRepos
     let commonSubdir reporev = joinPath $ foldr1 commonPrefix $
             map (maybe [] splitDirectories . jcSubtree) . filter ((reporev ==) . jcRepo) $ checkouts
     let canonicalRepoOrder = Nothing : maybe [] (map (Just . repoName) . configRepos) (jobsetConfig dset)
