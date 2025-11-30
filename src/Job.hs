@@ -8,7 +8,11 @@ module Job (
     jobStatusFinished, jobStatusFailed,
     JobManager(..), newJobManager, cancelAllJobs,
     runJobs, waitForRemainingTasks,
+
     prepareJob,
+    getArtifactWorkPath,
+    copyArtifact,
+
     jobStorageSubdir,
 
     copyRecursive,
@@ -374,6 +378,7 @@ updateStatusFile JobManager {..} jdir outVar = liftIO $ do
 jobStorageSubdir :: JobId -> FilePath
 jobStorageSubdir (JobId jidParts) = "jobs" </> joinPath (map (T.unpack . textJobIdPart) (jidParts))
 
+
 prepareJob :: (MonadIO m, MonadMask m, MonadFail m) => FilePath -> Job -> (FilePath -> m a) -> m a
 prepareJob dir job inner = do
     withSystemTempDirectory "minici" $ \checkoutPath -> do
@@ -384,6 +389,32 @@ prepareJob dir job inner = do
         let jdir = dir </> jobStorageSubdir (jobId job)
         liftIO $ createDirectoryIfMissing True jdir
         inner checkoutPath
+
+getArtifactStoredPath :: (MonadIO m, MonadError Text m) => FilePath -> JobId -> ArtifactName -> m FilePath
+getArtifactStoredPath storageDir jid@(JobId ids) (ArtifactName aname) = do
+    let jdir = joinPath $ (storageDir :) $ ("jobs" :) $ map (T.unpack . textJobIdPart) ids
+        adir = jdir </> "artifacts" </> T.unpack aname
+
+    liftIO (doesDirectoryExist jdir) >>= \case
+        True -> return ()
+        False -> throwError $ "job ‘" <> textJobId jid <> "’ not yet executed"
+
+    liftIO (doesDirectoryExist adir) >>= \case
+        True -> return ()
+        False -> throwError $ "artifact ‘" <> aname <> "’ of job ‘" <> textJobId jid <> "’ not found"
+
+    return adir
+
+getArtifactWorkPath :: (MonadIO m, MonadError Text m) => FilePath -> JobId -> ArtifactName -> m FilePath
+getArtifactWorkPath storageDir jid aname = do
+    adir <- getArtifactStoredPath storageDir jid aname
+    liftIO $ readFile (adir </> "path")
+
+copyArtifact :: (MonadIO m, MonadError Text m) => FilePath -> JobId -> ArtifactName -> FilePath -> m ()
+copyArtifact storageDir jid aname tpath = do
+    adir <- getArtifactStoredPath storageDir jid aname
+    liftIO $ copyRecursive (adir </> "data") tpath
+
 
 runJob :: Job -> [ ( ArtifactSpec, ArtifactOutput) ] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
 runJob job uses checkoutPath jdir = do

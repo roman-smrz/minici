@@ -79,25 +79,17 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
             _:_:_ -> tfail $ "destination ‘" <> T.pack extractDestination <> "’ is not a directory"
             _     -> return False
 
-    forM_ extractArtifacts $ \( ref, ArtifactName aname ) -> do
-        [ jid@(JobId ids) ] <- either tfail (return . map jobId) =<<
+    forM_ extractArtifacts $ \( ref, aname ) -> do
+        [ jid ] <- either tfail (return . map jobId) =<<
             return . either (Left . textEvalError) (first T.pack . jobsetJobsEither) =<<
             liftIO (runEval (evalJobReference ref) einput)
 
-        let jdir = joinPath $ (storageDir :) $ ("jobs" :) $ map (T.unpack . textJobIdPart) ids
-            adir = jdir </> "artifacts" </> T.unpack aname
+        tpath <- if
+            | isdir -> do
+                wpath <- either tfail return =<< runExceptT (getArtifactWorkPath storageDir jid aname)
+                return $ extractDestination </> takeFileName wpath
+            | otherwise -> return extractDestination
 
-        liftIO (doesDirectoryExist jdir) >>= \case
-            True -> return ()
-            False -> tfail $ "job ‘" <> textJobId jid <> "’ not yet executed"
-
-        liftIO (doesDirectoryExist adir) >>= \case
-            True -> return ()
-            False -> tfail $ "artifact ‘" <> aname <> "’ of job ‘" <> textJobId jid <> "’ not found"
-
-        wpath <- liftIO $ readFile (adir </> "path")
-        let tpath | isdir = extractDestination </> takeFileName wpath
-                  | otherwise = extractDestination
         liftIO (doesPathExist tpath) >>= \case
             True
                 | extractForce -> liftIO (doesDirectoryExist tpath) >>= \case
@@ -105,4 +97,5 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
                     False -> liftIO $ removeFile tpath
                 | otherwise -> tfail $ "destination ‘" <> T.pack tpath <> "’ already exists"
             False -> return ()
-        liftIO $ copyRecursive (adir </> "data") tpath
+
+        either tfail return =<< runExceptT (copyArtifact storageDir jid aname tpath)
