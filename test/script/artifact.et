@@ -43,3 +43,86 @@ test ExtractArtifact:
         shell on n as s:
             cat ./extracted_subdir/fb
         expect /content b/ from s
+
+
+test ExtractArtifactForce:
+    node n
+    local:
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "run", "generate" ]
+        expect /job-finish generate done/ from p
+
+    # TODO: test failure without --force
+    #local:
+    #    shell on n:
+    #        touch extracted
+    #    spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.first", "extracted" ]
+    #local:
+
+    local:
+        shell on n:
+            touch extracted
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "--force", "generate.first", "extracted" ]
+    local:
+        shell on n as s:
+            cat ./extracted
+        expect /content 1/ from s
+
+    # TODO: test failure without --force
+    #local:
+    #    shell on n:
+    #        touch f1
+    #    spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.first", "." ]
+    #local:
+
+    local:
+        shell on n:
+            touch f1
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "--force", "generate.first", "." ]
+    local:
+        shell on n as s:
+            cat ./f1
+        expect /content 1/ from s
+
+    # TODO: test failure without --force
+    #local:
+    #    shell on n:
+    #        mkdir dir
+    #        touch dir/existing_file
+    #    spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.dir", "." ]
+    #local:
+
+    local:
+        shell on n:
+            mkdir dir
+            touch dir/existing_file
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "--force", "generate.dir", "." ]
+    local:
+        shell on n as s:
+            ls dir
+            echo DONE
+        expect /f2/ from s
+        expect /fa/ from s
+        expect /subdir/ from s
+        expect /(.*)/ from s capture done
+        guard (done == "DONE")
+
+    # TODO: test failure without --force
+    #local:
+    #    shell on n:
+    #        touch dir
+    #    spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "generate.dir", "." ]
+    #local:
+
+    local:
+        shell on n:
+            touch dir
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/minici.yaml", "extract", "--force", "generate.dir", "." ]
+    local:
+        shell on n as s:
+            ls dir
+            echo DONE
+        expect /f2/ from s
+        expect /fa/ from s
+        expect /subdir/ from s
+        expect /(.*)/ from s capture done
+        guard (done == "DONE")

@@ -98,8 +98,11 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
         wpath <- liftIO $ readFile (adir </> "path")
         let tpath | isdir = extractDestination </> takeFileName wpath
                   | otherwise = extractDestination
-        when (not extractForce) $ do
-            liftIO (doesPathExist tpath) >>= \case
-                True -> tfail $ "destination ‘" <> T.pack tpath <> "’ already exists"
-                False -> return ()
-        liftIO $ copyRecursiveForce (adir </> "data") tpath
+        liftIO (doesPathExist tpath) >>= \case
+            True
+                | extractForce -> liftIO (doesDirectoryExist tpath) >>= \case
+                    True -> liftIO $ removeDirectoryRecursive tpath
+                    False -> liftIO $ removeFile tpath
+                | otherwise -> tfail $ "destination ‘" <> T.pack tpath <> "’ already exists"
+            False -> return ()
+        liftIO $ copyRecursive (adir </> "data") tpath
