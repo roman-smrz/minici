@@ -483,6 +483,8 @@ test RunWithManyRepos:
     expect /([0-9a-f]+)/ from git_init capture r5c
     expect /([0-9a-f]+)/ from git_init capture r5t
 
+    # Path to a repo containing the script file
+
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "first" ]
         expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
@@ -560,5 +562,20 @@ test RunWithManyRepos:
         expect_success from p of "$mt.transitive.$r1t.$r2t.$r3t.$r4t"
         expect_success from p of "$mt.combined.$r1t.$r2t.$r3t.$r4t.$r5t"
         expect_success from p of "$mt.combined_transitive.$r1t.$r2t.$r3t.$r4t.$r5t"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+
+    # Explicit path to the script file
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main/minici.yaml", "run", "--rerun-all", "first" ]
+        expect_success from p of "first.$r1t.$r2t.$r3t.$r4t"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main/minici.yaml", "run", "--rerun-all", "second" ]
+        expect_success from p of "second.$mt.$r2t.$r3t.$r5t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")

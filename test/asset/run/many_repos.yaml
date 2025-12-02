@@ -54,6 +54,7 @@ job first_manual_revision:
 
 job second:
   checkout:
+    - dest: main
     - repo: r2
       dest: d2
     - repo: r5

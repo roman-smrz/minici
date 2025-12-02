@@ -146,7 +146,8 @@ mergeSources sources = do
 argumentJobSource :: [ JobName ] -> CommandExec JobSource
 argumentJobSource [] = emptyJobSource
 argumentJobSource names = do
-    ( config, jcommit ) <- getJobRoot >>= \case
+    jobRoot <- getJobRoot
+    ( config, jcommit ) <- case jobRoot of
         JobRootConfig config -> do
             commit <- sequence . fmap createWipCommit =<< tryGetDefaultRepo
             return ( config, commit )
@@ -158,7 +159,9 @@ argumentJobSource names = do
     jobtree <- case jcommit of
         Just commit -> (: []) <$> getCommitTree commit
         Nothing -> return []
-    let cidPart = map (JobIdTree Nothing "" . treeId) jobtree
+    let cidPart = case jobRoot of
+            JobRootConfig {} -> []
+            JobRootRepo {} -> map (JobIdTree Nothing "" . treeId) jobtree
     forM_ names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just _  -> return ()
