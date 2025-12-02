@@ -579,3 +579,14 @@ test RunWithManyRepos:
         expect_success from p of "second.$mt.$r2t.$r3t.$r5t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main/minici.yaml", "run", "--rerun-all", "combined_transitive" ]
+        expect_success from p of "first.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "second.$mt.$r2t.$r3t.$r5t"
+        expect_success from p of "dependent.$mt.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "transitive.$mt.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "combined.$mt.$r1t.$r2t.$r3t.$r4t.$r5t"
+        expect_success from p of "combined_transitive.$mt.$r1t.$r2t.$r3t.$r4t.$r5t"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")

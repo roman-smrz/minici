@@ -54,15 +54,6 @@ commonPrefix :: Eq a => [ a ] -> [ a ] -> [ a ]
 commonPrefix (x : xs) (y : ys) | x == y = x : commonPrefix xs ys
 commonPrefix _        _                 = []
 
-isDefaultRepoMissingInId :: DeclaredJob -> Eval Bool
-isDefaultRepoMissingInId djob
-    | all (isJust . jcRepo) (jobCheckout djob) = return False
-    | otherwise = asks (not . any matches . eiCurrentIdRev)
-  where
-    matches (JobIdName _) = False
-    matches (JobIdCommit rname _) = isNothing rname
-    matches (JobIdTree rname _ _) = isNothing rname
-
 collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), FilePath ) ]
 collectOtherRepos dset decl = do
     jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
@@ -78,11 +69,14 @@ collectOtherRepos dset decl = do
         job <- maybe (throwError $ OtherEvalError $ "job ‘" <> textJobName name <> "’ not found") return . find ((name ==) . jobName) $ jobs
         return $ jobCheckout job
 
-    missingDefault <- isDefaultRepoMissingInId decl
-
+    let isDefaultRepoId (JobIdName _) = False
+        isDefaultRepoId (JobIdCommit rname _) = isNothing rname
+        isDefaultRepoId (JobIdTree rname _ _) = isNothing rname
+    alreadyHasDefaultRepoId <- asks (any isDefaultRepoId . eiCurrentIdRev)
     let checkouts =
-            (if missingDefault then id else filter (isJust . jcRepo)) $
+            (if alreadyHasDefaultRepoId then filter (isJust . jcRepo) else id) $
                 concat dependencyRepos
+
     let commonSubdir reporev = joinPath $ foldr1 commonPrefix $
             map (maybe [] splitDirectories . jcSubtree) . filter ((reporev ==) . jcRepo) $ checkouts
     let canonicalRepoOrder = Nothing : maybe [] (map (Just . repoName) . configRepos) (jobsetConfig dset)
