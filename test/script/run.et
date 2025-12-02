@@ -260,31 +260,63 @@ test RunExplicitDependentJob:
         git -C main -c user.name=test -c user.email=test commit -q -m 'commit'
         git -C main rev-parse HEAD^{tree}
 
+        mkdir -p other
+        git -C other -c init.defaultBranch=master init -q
+
+        mkdir -p other/subdir
+
+        touch other/subdir/a
+        git -C other add subdir
+        git -C other -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C other rev-parse HEAD^{tree}
+
+        touch other/subdir/b
+        git -C other add subdir
+        git -C other -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C other rev-parse HEAD^{tree}
+
+        rm other/subdir/a
+        rm other/subdir/b
+        touch other/subdir/c
+        git -C other add subdir
+        git -C other -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C other rev-parse HEAD^{tree}
+
+        touch other/subdir/d
+        git -C other add subdir
+        git -C other -c user.name=test -c user.email=test commit -q -m 'commit'
+        git -C other rev-parse HEAD^{tree}
+
     expect /([0-9a-f]+)/ from git_init capture c1
     expect /([0-9a-f]+)/ from git_init capture t1
     expect /([0-9a-f]+)/ from git_init capture t2
     expect /([0-9a-f]+)/ from git_init capture t3
     expect /([0-9a-f]+)/ from git_init capture t4
 
+    expect /([0-9a-f]+)/ from git_init capture o1
+    expect /([0-9a-f]+)/ from git_init capture o2
+    expect /([0-9a-f]+)/ from git_init capture o3
+    expect /([0-9a-f]+)/ from git_init capture o4
+
     local:
-        spawn on n as p args [ "./main", "run", "$c1.first", "$t2.first", "$t3.fourth", "$c1.fifth", "$c1.fourth", "$c1.third", "$c1.second", "$t4.fifth" ]
+        spawn on n as p args [ "--repo=other:./other", "./main", "run", "$c1.first", "$t2.first", "$t3.fourth.$o3", "$c1.fifth.$o1", "$c1.fourth.$o1", "$c1.third", "$c1.second", "$t4.fifth.$o4" ]
         expect_success from p of "$t1.first"
         expect_success from p of "$t1.second"
         expect_success from p of "$t1.third"
-        expect_success from p of "$t1.fourth"
-        expect_success from p of "$t1.fifth"
+        expect_success from p of "$t1.fourth.$o1"
+        expect_success from p of "$t1.fifth.$o1"
 
         expect_success from p of "$t2.first"
 
         expect_success from p of "$t3.first"
         expect_success from p of "$t3.second"
-        expect_success from p of "$t3.fourth"
+        expect_success from p of "$t3.fourth.$o3"
 
         expect_success from p of "$t4.first"
         expect_success from p of "$t4.second"
         expect_success from p of "$t4.third"
-        expect_success from p of "$t4.fourth"
-        expect_success from p of "$t4.fifth"
+        expect_success from p of "$t4.fourth.$o4"
+        expect_success from p of "$t4.fifth.$o4"
 
         flush from p matching /note .*/
         flush from p matching /job-duplicate .*/

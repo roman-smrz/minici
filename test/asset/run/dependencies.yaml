@@ -1,3 +1,5 @@
+repo other:
+
 job first:
   shell:
     - touch x
@@ -29,6 +31,11 @@ job third:
 
 
 job fourth:
+  checkout:
+    - dest: a
+    - repo: other
+      dest: b
+
   uses:
     - second.out
 
@@ -40,16 +47,16 @@ job fourth:
 
 
 job fifth:
-    uses:
-      - third.out
-      - fourth.out
+  uses:
+    - third.out
+    - fourth.out
 
-    shell:
-      - mv z z2
-      - mv w w2
+  shell:
+    - mv z z2
+    - mv w w2
 
-    artifact out1:
-      path: z2
+  artifact out1:
+    path: z2
 
-    artifact out2:
-      path: w2
+  artifact out2:
+    path: w2
