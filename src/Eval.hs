@@ -162,7 +162,13 @@ evalRepo (Just name) = asks (lookup name . eiOtherRepos) >>= \case
 canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval JobSet
 canonicalJobName (r : rs) config mbDefaultRepo = do
     let name = JobName r
-        dset = JobSet () (Just config) Nothing [] $ Right $ configJobs config
+        dset = JobSet
+            { jobsetId = ()
+            , jobsetConfig = Just config
+            , jobsetCommit = Nothing
+            , jobsetExplicitlyRequested = []
+            , jobsetJobsEither = Right $ configJobs config
+            }
     case find ((name ==) . jobName) (configJobs config) of
         Just djob -> do
             otherRepos <- collectOtherRepos dset djob
@@ -177,14 +183,8 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
                 _ -> return ()
-            ( job, sid ) <- evalJob (maybe id ((:) . ( Nothing, )) mbDefaultRepo $ overrides) dset djob
-            return JobSet
-                { jobsetId = sid
-                , jobsetConfig = Just config
-                , jobsetCommit = Nothing
-                , jobsetExplicitlyRequested = []
-                , jobsetJobsEither = Right [ job ]
-                }
+            eset <- evalJobSet (maybe id ((:) . ( Nothing, )) mbDefaultRepo $ overrides) dset
+            return eset { jobsetJobsEither = fmap (filter ((name ==) . jobName)) $ jobsetJobsEither eset }
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
 canonicalJobName [] _ _ = throwError $ OtherEvalError "expected job name"
 
