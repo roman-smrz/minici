@@ -266,20 +266,21 @@ fillInDependencies :: JobSet -> Eval JobSet
 fillInDependencies jset = do
     ( dset, idRev, otherRepos ) <- local (\ei -> ei { eiCurrentIdRev = [] }) $ do
         loadJobSetById (jobsetId jset)
+    eset <- local (\ei -> ei { eiCurrentIdRev = idRev }) $ do
+        evalJobSet otherRepos dset
     origJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither jset
-    declJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
-    deps <- gather declJobs S.empty (map jobName origJobs)
+    allJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither eset
+    deps <- gather allJobs S.empty (map jobName origJobs)
 
-    jobs <- local (\ei -> ei { eiCurrentIdRev = idRev }) $ do
-        fmap catMaybes $ forM declJobs $ \djob -> if
-            | Just job <- find ((jobName djob ==) . jobName) origJobs
-            -> return (Just job)
+    let jobs = catMaybes $ flip map allJobs $ \ejob -> if
+            | Just job <- find ((jobName ejob ==) . jobName) origJobs
+            -> Just job
 
-            | jobName djob `S.member` deps
-            -> Just . fst <$> evalJob otherRepos dset djob
+            | jobName ejob `S.member` deps
+            -> Just ejob
 
             | otherwise
-            -> return Nothing
+            -> Nothing
 
     return $ jset { jobsetJobsEither = Right jobs }
   where
