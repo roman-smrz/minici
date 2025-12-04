@@ -54,6 +54,29 @@ commonPrefix :: Eq a => [ a ] -> [ a ] -> [ a ]
 commonPrefix (x : xs) (y : ys) | x == y = x : commonPrefix xs ys
 commonPrefix _        _                 = []
 
+checkIfAlreadyHasDefaultRepoId :: Eval Bool
+checkIfAlreadyHasDefaultRepoId = do
+    asks (any isDefaultRepoId . eiCurrentIdRev)
+  where
+    isDefaultRepoId (JobIdName _) = False
+    isDefaultRepoId (JobIdCommit rname _) = isNothing rname
+    isDefaultRepoId (JobIdTree rname _ _) = isNothing rname
+
+collectJobSetRepos :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval [ ( Maybe RepoName, Tree ) ]
+collectJobSetRepos revisionOverrides dset = do
+    jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
+    let someJobUsesDefaultRepo = any (any (isNothing . jcRepo) . jobCheckout) jobs
+        repos =
+            (if someJobUsesDefaultRepo then (Nothing :) else id) $
+                map (Just . repoName) $ maybe [] configRepos $ jobsetConfig dset
+    forM repos $ \rname -> do
+        case lookup rname revisionOverrides of
+            Just tree -> return ( rname, tree )
+            Nothing -> do
+                repo <- evalRepo rname
+                tree <- getCommitTree =<< readCommit repo "HEAD"
+                return ( rname, tree )
+
 collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), FilePath ) ]
 collectOtherRepos dset decl = do
     jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
@@ -69,10 +92,7 @@ collectOtherRepos dset decl = do
         job <- maybe (throwError $ OtherEvalError $ "job ‘" <> textJobName name <> "’ not found") return . find ((name ==) . jobName) $ jobs
         return $ jobCheckout job
 
-    let isDefaultRepoId (JobIdName _) = False
-        isDefaultRepoId (JobIdCommit rname _) = isNothing rname
-        isDefaultRepoId (JobIdTree rname _ _) = isNothing rname
-    alreadyHasDefaultRepoId <- asks (any isDefaultRepoId . eiCurrentIdRev)
+    alreadyHasDefaultRepoId <- checkIfAlreadyHasDefaultRepoId
     let checkouts =
             (if alreadyHasDefaultRepoId then filter (isJust . jcRepo) else id) $
                 concat dependencyRepos
@@ -132,6 +152,13 @@ evalJob revisionOverrides dset decl = do
 evalJobSet :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval JobSet
 evalJobSet revisionOverrides decl = do
     EvalInput {..} <- ask
+    repos <- collectJobSetRepos revisionOverrides decl
+    alreadyHasDefaultRepoId <- checkIfAlreadyHasDefaultRepoId
+    let addedRepoIds =
+            map (\( mbname, tree ) -> JobIdTree mbname "" (treeId tree)) $
+            (if alreadyHasDefaultRepoId then filter (isJust . fst) else id) $
+            repos
+
     jobs <- fmap (fmap (map fst))
         $ either (return . Left) (handleToEither . mapM (evalJob revisionOverrides decl))
         $ jobsetJobsEither decl
@@ -141,7 +168,7 @@ evalJobSet revisionOverrides decl = do
                 Right declEval -> catMaybes $
                     map (\jid -> jobId . snd <$> find ((jid ==) . jobId . fst) declEval) $ jobsetExplicitlyRequested decl
     return JobSet
-        { jobsetId = JobSetId $ reverse $ eiCurrentIdRev
+        { jobsetId = JobSetId $ reverse $ reverse addedRepoIds ++ eiCurrentIdRev
         , jobsetConfig = jobsetConfig decl
         , jobsetCommit = jobsetCommit decl
         , jobsetExplicitlyRequested = explicit
