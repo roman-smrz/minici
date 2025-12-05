@@ -1,0 +1,93 @@
+repo r1:
+repo r2:
+repo r3:
+
+job checkout_subtree:
+  checkout:
+    - repo: r1
+      dest: d1
+
+    - repo: r2
+      subtree: s1
+      dest: d2_s1
+
+  shell:
+    - find \! -name 'list?' -type f > list1
+
+  artifact out:
+    path: list1
+
+
+job checkout_common_root:
+  checkout:
+    - repo: r1
+      dest: d1
+
+    - repo: r2
+      subtree: s1
+      dest: d2_s1
+
+    - repo: r2
+      subtree: s2
+      dest: d2_s2
+
+  shell:
+    - find \! -name 'list?' -type f > list2
+
+  artifact out:
+    path: list2
+
+
+job checkout_common_subtree:
+  checkout:
+    - repo: r3
+      subtree: a/b/s1
+      dest: d3_s1
+
+    - repo: r3
+      subtree: a/b/c/s2
+      dest: d3_s2
+
+  shell:
+    - find \! -name 'list?' -type f > list3
+
+  artifact out:
+    path: list3
+
+
+job checkout_common_subtree2:
+  checkout:
+    - repo: r1
+      dest: d1
+
+    - repo: r2
+      subtree: s1
+      dest: d2_s1
+
+    - repo: r3
+      subtree: a/b/c/s2
+      dest: d3_s2
+
+    - repo: r3
+      subtree: a/b/c/s3
+      dest: d3_s3
+
+  shell:
+    - find \! -name 'list?' -type f > list4
+
+  artifact out:
+    path: list4
+
+
+job combined_subtree:
+  uses:
+    - checkout_common_root.out
+    - checkout_common_subtree2.out
+
+
+job combined_all:
+  uses:
+    - checkout_subtree.out
+    - checkout_common_root.out
+    - checkout_common_subtree.out
+    - checkout_common_subtree2.out
