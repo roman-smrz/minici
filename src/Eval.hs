@@ -4,10 +4,10 @@ module Eval (
     Eval, runEval,
 
     evalJobSet,
+    evalJobSetSelected,
     evalJobReference,
 
     loadJobSetById,
-    fillInDependencies,
 ) where
 
 import Control.Monad
@@ -16,7 +16,6 @@ import Control.Monad.Reader
 
 import Data.List
 import Data.Maybe
-import Data.Set qualified as S
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -189,7 +188,11 @@ evalJobSetSelected selected revisionOverrides decl = do
             (if alreadyHasDefaultRepoId then filter (isJust . fst) else id) $
             repos
 
-    jobs <- handleToEither $ evalJobs [] [] repos decl selected
+    evaluated <- handleToEither $ evalJobs [] [] repos decl selected
+    let jobs = case liftM2 (,) evaluated (jobsetJobsEither decl) of
+            Left err -> Left err
+            Right ( ejobs, djobs ) -> Right $ mapMaybe (\dj -> find ((jobName dj ==) . jobName) ejobs) djobs
+
     let explicit = mapMaybe (\name -> jobId <$> find ((name ==) . jobName) (either (const []) id jobs)) $ jobsetExplicitlyRequested decl
     return JobSet
         { jobsetId = JobSetId $ reverse $ reverse addedRepoIds ++ eiCurrentIdRev
@@ -217,7 +220,7 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
             { jobsetId = ()
             , jobsetConfig = Just config
             , jobsetCommit = Nothing
-            , jobsetExplicitlyRequested = []
+            , jobsetExplicitlyRequested = [ name ]
             , jobsetJobsEither = Right $ configJobs config
             }
     case find ((name ==) . jobName) (configJobs config) of
@@ -234,8 +237,7 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
                 _ -> return ()
-            eset <- evalJobSetSelected [ name ] (maybe id ((:) . ( Nothing, )) mbDefaultRepo $ overrides) dset
-            return eset { jobsetJobsEither = fmap (filter ((name ==) . jobName)) $ jobsetJobsEither eset }
+            evalJobSetSelected (jobsetExplicitlyRequested dset) (maybe id ((:) . ( Nothing, )) mbDefaultRepo $ overrides) dset
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
 canonicalJobName [] _ _ = throwError $ OtherEvalError "expected job name"
 
@@ -312,37 +314,3 @@ loadJobSetById (JobSetId sid) = do
             jobsetFromCommitConfig sid defRepo
         JobRootConfig config -> do
             jobsetFromConfig sid config Nothing
-
-fillInDependencies :: JobSet -> Eval JobSet
-fillInDependencies jset = do
-    ( dset, idRev, otherRepos ) <- local (\ei -> ei { eiCurrentIdRev = [] }) $ do
-        loadJobSetById (jobsetId jset)
-    eset <- local (\ei -> ei { eiCurrentIdRev = idRev }) $ do
-        evalJobSet otherRepos dset
-    origJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither jset
-    allJobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither eset
-    deps <- gather allJobs S.empty (map jobName origJobs)
-
-    let jobs = catMaybes $ flip map allJobs $ \ejob -> if
-            | Just job <- find ((jobName ejob ==) . jobName) origJobs
-            -> Just job
-
-            | jobName ejob `S.member` deps
-            -> Just ejob
-
-            | otherwise
-            -> Nothing
-
-    return $ jset { jobsetJobsEither = Right jobs }
-  where
-    gather djobs cur ( name : rest )
-        | name `S.member` cur
-        = gather djobs cur rest
-
-        | Just djob <- find ((name ==) . jobName) djobs
-        = gather djobs (S.insert name cur) $ map fst (jobUses djob) ++ map (fst . jpArtifact) (jobPublish djob) ++ rest
-
-        | otherwise
-        = throwError $ OtherEvalError $ "dependency ‘" <> textJobName name <> "’ not found"
-
-    gather _ cur [] = return cur

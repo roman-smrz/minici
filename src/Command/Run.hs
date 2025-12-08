@@ -8,6 +8,7 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.Containers.ListUtils
 import Data.Either
 import Data.List
 import Data.Maybe
@@ -168,29 +169,26 @@ argumentJobSource names = do
             Nothing -> tfail $ "job ‘" <> textJobName name <> "’ not found"
 
     jset <- cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei }) $ do
-        fullSet <- evalJobSet (map ( Nothing, ) jobtree) JobSet
+        evalJobSetSelected names (map ( Nothing, ) jobtree) JobSet
             { jobsetId = ()
             , jobsetConfig = Just config
             , jobsetCommit = jcommit
             , jobsetExplicitlyRequested = names
             , jobsetJobsEither = Right (configJobs config)
             }
-        let selectedSet = fullSet { jobsetJobsEither = fmap (filter ((`elem` names) . jobName)) (jobsetJobsEither fullSet) }
-        fillInDependencies selectedSet
     oneshotJobSource [ jset ]
 
 refJobSource :: [ JobRef ] -> CommandExec JobSource
 refJobSource [] = emptyJobSource
 refJobSource refs = do
-    jsets <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
-    sets <- cmdEvalWith id $ do
-        forM jsets $ \jset -> do
-            fillInDependencies $ jset { jobsetExplicitlyRequested = either (const []) (map jobId) $ jobsetJobsEither jset }
+    sets <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
     oneshotJobSource sets
   where
     addJobToList :: [ JobSet ] -> JobSet -> [ JobSet ]
     addJobToList (cur : rest) jset
-        | jobsetId cur == jobsetId jset = cur { jobsetJobsEither = (++) <$> (fmap reverse $ jobsetJobsEither jset) <*> (jobsetJobsEither cur) } : rest
+        | jobsetId cur == jobsetId jset = cur { jobsetJobsEither = fmap (nubOrdOn jobId) $ (++) <$> (jobsetJobsEither cur) <*> (jobsetJobsEither jset)
+                                              , jobsetExplicitlyRequested = nubOrd $ jobsetExplicitlyRequested cur ++ jobsetExplicitlyRequested jset
+                                              } : rest
         | otherwise                     = cur : addJobToList rest jset
     addJobToList [] jset                = [ jset ]
 
