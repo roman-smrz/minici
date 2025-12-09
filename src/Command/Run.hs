@@ -181,7 +181,7 @@ argumentJobSource names = do
 refJobSource :: [ JobRef ] -> CommandExec JobSource
 refJobSource [] = emptyJobSource
 refJobSource refs = do
-    sets <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReference refs)
+    sets <- foldl' addJobToList [] <$> cmdEvalWith id (mapM evalJobReferenceToSet refs)
     oneshotJobSource sets
   where
     addJobToList :: [ JobSet ] -> JobSet -> [ JobSet ]

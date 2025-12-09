@@ -263,3 +263,31 @@ test CheckoutSubtree:
             /\.\/d3_s3\/file3/
             /(.*)/ capture done
         guard (done == "DONE")
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "--repo=r3:./dir_r3", "./main", "run", "--rerun-all", "combined_subtree" ]
+        expect_success from p of "$mt.checkout_common_root.$r1t.$r2t"
+        expect_success from p of "$mt.checkout_common_subtree2.$r1t.$r2s1.$r3abc"
+        expect_success from p of "$mt.combined_subtree.$r1t.$r2t.$r3abc"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "--repo=r3:./dir_r3", "./main", "run", "--rerun-all", "$mt.combined_subtree.$r1t.$r2t.$r3abc" ]
+        expect_success from p of "$mt.checkout_common_root.$r1t.$r2t"
+        expect_success from p of "$mt.checkout_common_subtree2.$r1t.$r2s1.$r3abc"
+        expect_success from p of "$mt.combined_subtree.$r1t.$r2t.$r3abc"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "--repo=r3:./dir_r3", "./main", "extract", "$mt.combined_subtree.$r1t.$r2t.$r3abc.out", "list" ]
+    local:
+        shell on n as list:
+            cat list
+            rm list
+            echo DONE
+        expect from list:
+            /\.\/minici.yaml/
+            /\.\/list2/
+            /\.\/list4/
+            /(.*)/ capture done
+        guard (done == "DONE")

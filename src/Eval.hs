@@ -6,6 +6,7 @@ module Eval (
     evalJobSet,
     evalJobSetSelected,
     evalJobReference,
+    evalJobReferenceToSet,
 
     loadJobSetById,
 ) where
@@ -257,13 +258,20 @@ canonicalCommitConfig rs repo = do
     local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing "" (treeId tree) : eiCurrentIdRev ei }) $
         canonicalJobName rs' config (Just tree)
 
-evalJobReference :: JobRef -> Eval JobSet
-evalJobReference (JobRef rs) =
+evalJobReferenceToSet :: JobRef -> Eval JobSet
+evalJobReferenceToSet (JobRef rs) =
     asks eiJobRoot >>= \case
         JobRootRepo defRepo -> do
             canonicalCommitConfig rs defRepo
         JobRootConfig config -> do
             canonicalJobName rs config Nothing
+
+evalJobReference :: JobRef -> Eval Job
+evalJobReference ref = do
+    jset <- evalJobReferenceToSet ref
+    jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither jset
+    [ name ] <- return $ jobsetExplicitlyRequested jset
+    maybe (error "missing job in evalJobReferenceToSet result") return $ find ((name ==) . jobId) jobs
 
 
 jobsetFromConfig :: [ JobIdPart ] -> Config -> Maybe Tree -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )

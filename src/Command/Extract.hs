@@ -6,7 +6,6 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.IO.Class
 
-import Data.Bifunctor
 import Data.Text qualified as T
 
 import System.Console.GetOpt
@@ -80,8 +79,7 @@ cmdExtract (ExtractCommand ExtractOptions {..} ExtractArguments {..}) = do
             _     -> return False
 
     forM_ extractArtifacts $ \( ref, aname ) -> do
-        [ jid ] <- either tfail (return . map jobId) =<<
-            return . either (Left . textEvalError) (first T.pack . jobsetJobsEither) =<<
+        jid <- either (tfail . textEvalError) (return . jobId) =<<
             liftIO (runEval (evalJobReference ref) einput)
 
         tpath <- if

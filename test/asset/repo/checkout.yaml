@@ -84,6 +84,12 @@ job combined_subtree:
     - checkout_common_root.out
     - checkout_common_subtree2.out
 
+  shell:
+    - find \! -name 'list5' -type f > list5
+
+  artifact out:
+    path: list5
+
 
 job combined_all:
   uses:

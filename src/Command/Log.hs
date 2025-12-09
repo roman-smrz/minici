@@ -4,7 +4,6 @@ module Command.Log (
 
 import Control.Monad.IO.Class
 
-import Data.Bifunctor
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
@@ -38,8 +37,7 @@ instance Command LogCommand where
 cmdLog :: LogCommand -> CommandExec ()
 cmdLog (LogCommand ref) = do
     einput <- getEvalInput
-    [ jid ] <- either tfail (return . map jobId) =<<
-        return . either (Left . textEvalError) (first T.pack . jobsetJobsEither) =<<
+    jid <- either (tfail . textEvalError) (return . jobId) =<<
         liftIO (runEval (evalJobReference ref) einput)
     output <- getOutput
     storageDir <- getStorageDir

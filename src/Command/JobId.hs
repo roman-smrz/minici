@@ -5,7 +5,6 @@ module Command.JobId (
 import Control.Monad
 import Control.Monad.IO.Class
 
-import Data.Bifunctor
 import Data.Text (Text)
 import Data.Text qualified as T
 
@@ -53,8 +52,7 @@ cmdJobId :: JobIdCommand -> CommandExec ()
 cmdJobId (JobIdCommand JobIdOptions {..} ref) = do
     einput <- getEvalInput
     out <- getOutput
-    [ JobId ids ] <- either tfail (return . map jobId) =<<
-        return . either (Left . textEvalError) (first T.pack . jobsetJobsEither) =<<
+    JobId ids <- either (tfail . textEvalError) (return . jobId) =<<
         liftIO (runEval (evalJobReference ref) einput)
 
     outputMessage out $ textJobId $ JobId ids
