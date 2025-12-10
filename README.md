@@ -17,22 +17,23 @@ Example:
 
 ```
 job build:
-  shell:
-    - make
+  shell: |
+    ./configure
+    make
   artifact bin:
     path: build/example
 
 job test:
   uses:
     - build.bin
-  shell:
-    - ./build/example test
+  shell: |
+    ./build/example test
 ```
 
 Each job is a map with the following attributes:
 
 `shell`
-: List of shell commands to perform the job
+: Shell script to perform the job.
 
 `artifact <name>` (optional)
 : Defines artifact `<name>` produced by this job. Is itself defined as a dictionary.

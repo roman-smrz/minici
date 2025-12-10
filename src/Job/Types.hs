@@ -20,7 +20,7 @@ data Job' d = Job
     { jobId :: JobId' d
     , jobName :: JobName
     , jobCheckout :: [ JobCheckout d ]
-    , jobRecipe :: Maybe [ CreateProcess ]
+    , jobRecipe :: Maybe [ Either CreateProcess Text ]
     , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
     , jobUses :: [ ArtifactSpec ]
     , jobPublish :: [ JobPublish d ]

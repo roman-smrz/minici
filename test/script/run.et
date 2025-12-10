@@ -8,12 +8,20 @@ asset scripts:
 
 test RunWithoutRepo:
     node n
-    spawn on n as p args [ "--storage=.minici", "${scripts.path}/norepo-basic.yaml", "run", "success", "failure" ]
-    expect_result from p:
-        of "success" result "done"
-        of "failure" result "failed"
-    expect /(.*)/ from p capture done
-    guard (done == "run-finish")
+    local:
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/norepo-basic.yaml", "run", "success", "failure", "block_recipe" ]
+        expect_result from p:
+            of "success" result "done"
+            of "failure" result "failed"
+            of "block_recipe" result "done"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+    local:
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/norepo-basic.yaml", "extract", "block_recipe.out", "." ]
+    local:
+        shell on n as s:
+            cat var
+        expect /abc/ from s
 
 
 test RunWithRepo:

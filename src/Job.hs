@@ -38,6 +38,7 @@ import Data.Text qualified as T
 import Data.Text.IO qualified as T
 
 import System.Directory
+import System.Environment
 import System.Exit
 import System.FilePath
 import System.FilePath.Glob
@@ -424,14 +425,21 @@ runJob job uses checkoutPath jdir = do
         copyRecursive (aoutStorePath aout) target
 
     bracket (liftIO $ openFile (jdir </> "log") WriteMode) (liftIO . hClose) $ \logs -> do
-        forM_ (fromMaybe [] $ jobRecipe job) $ \p -> do
+        forM_ (fromMaybe [] $ jobRecipe job) $ \ep -> do
+            ( p, input ) <- case ep of
+                Left p -> return ( p, "" )
+                Right script -> do
+                    sh <- fromMaybe "/bin/sh" <$> liftIO (lookupEnv "SHELL")
+                    return ( proc sh [], script )
             (Just hin, _, _, hp) <- liftIO $ createProcess_ "" p
                 { cwd = Just checkoutPath
                 , std_in = CreatePipe
                 , std_out = UseHandle logs
                 , std_err = UseHandle logs
                 }
-            liftIO $ hClose hin
+            liftIO $ void $ forkIO $ do
+                T.hPutStr hin input
+                hClose hin
             liftIO (waitForProcess hp) >>= \case
                 ExitSuccess -> return ()
                 ExitFailure n

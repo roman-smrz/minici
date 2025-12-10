@@ -117,18 +117,23 @@ parseSingleCheckout = withMap "checkout definition" $ \m -> do
 parseMultipleCheckouts :: Node Pos -> Parser [ JobCheckout Declared ]
 parseMultipleCheckouts = withSeq "checkout definitions" $ fmap concat . mapM parseSingleCheckout
 
-cabalJob :: Node Pos -> Parser [CreateProcess]
+cabalJob :: Node Pos -> Parser [ Either CreateProcess Text ]
 cabalJob = withMap "cabal job" $ \m -> do
     ghcOptions <- m .:? "ghc-options" >>= \case
         Nothing -> return []
         Just s -> withSeq "GHC option list" (mapM (withStr "GHC option" return)) s
 
     return
-        [ proc "cabal" $ concat [ ["build"], ("--ghc-option="++) . T.unpack <$> ghcOptions ] ]
+        [ Left $ proc "cabal" $ concat [ ["build"], ("--ghc-option="++) . T.unpack <$> ghcOptions ] ]
 
-shellJob :: Node Pos -> Parser [CreateProcess]
-shellJob = withSeq "shell commands" $ \xs -> do
-    fmap (map shell) $ forM xs $ withStr "shell command" $ return . T.unpack
+shellJob :: Node Pos -> Parser [ Either CreateProcess Text ]
+shellJob node = do
+    commands <- choice
+        [ withStr "shell commands" return node
+        , withSeq "shell commands" (\xs -> do
+            fmap T.unlines $ forM xs $ withStr "shell command" $ return) node
+        ]
+    return [ Right commands ]
 
 parseArtifacts :: Mapping Pos -> Parser [ ( ArtifactName, Pattern ) ]
 parseArtifacts m = do

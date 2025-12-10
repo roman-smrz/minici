@@ -7,3 +7,14 @@ job failure:
   checkout: null
   shell:
     - "false"
+
+job block_recipe:
+  checkout: null
+  shell: |
+    mkdir dir
+    cd dir
+    export VAR='abc'
+    echo $VAR > var
+
+  artifact out:
+    path: dir/var
