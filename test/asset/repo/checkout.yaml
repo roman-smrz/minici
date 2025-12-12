@@ -97,3 +97,9 @@ job combined_all:
     - checkout_common_root.out
     - checkout_common_subtree.out
     - checkout_common_subtree2.out
+
+  shell:
+    - find \! -name 'list6' -type f > list6
+
+  artifact out:
+    path: list6

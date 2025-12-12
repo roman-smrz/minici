@@ -291,3 +291,37 @@ test CheckoutSubtree:
             /\.\/list4/
             /(.*)/ capture done
         guard (done == "DONE")
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "--repo=r3:./dir_r3", "./main", "run", "--rerun-all", "combined_all" ]
+        expect_success from p of "$mt.checkout_subtree.$r1t.$r2s1"
+        expect_success from p of "$mt.checkout_common_root.$r1t.$r2t"
+        expect_success from p of "$mt.checkout_common_subtree.$r3ab"
+        expect_success from p of "$mt.checkout_common_subtree2.$r1t.$r2s1.$r3abc"
+        expect_success from p of "$mt.combined_all.$r1t.$r2t.$r3ab"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "--repo=r3:./dir_r3", "./main", "run", "--rerun-all", "$mt.combined_all.$r1t.$r2t.$r3ab" ]
+        expect_success from p of "$mt.checkout_subtree.$r1t.$r2s1"
+        expect_success from p of "$mt.checkout_common_root.$r1t.$r2t"
+        expect_success from p of "$mt.checkout_common_subtree.$r3ab"
+        expect_success from p of "$mt.checkout_common_subtree2.$r1t.$r2s1.$r3abc"
+        expect_success from p of "$mt.combined_all.$r1t.$r2t.$r3ab"
+        expect /(.*)/ from p capture done
+        guard (done == "run-finish")
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "--repo=r3:./dir_r3", "./main", "extract", "$mt.combined_all.$r1t.$r2t.$r3ab.out", "list" ]
+    local:
+        shell on n as list:
+            cat list
+            rm list
+            echo DONE
+        expect from list:
+            /\.\/minici.yaml/
+            /\.\/list1/
+            /\.\/list2/
+            /\.\/list3/
+            /\.\/list4/
+            /(.*)/ capture done
+        guard (done == "DONE")
