@@ -1,0 +1,28 @@
+repo r1:
+repo r2:
+
+job generate:
+  checkout: null
+
+  shell:
+    - echo "content 1" > f1
+    - mkdir -p dir
+    - echo "content 2" > dir/f2
+
+  artifact file:
+    path: f1
+
+  artifact dir:
+    path: dir
+
+
+job combine:
+  checkout:
+    - repo: r1
+      dest: d1
+    - repo: r2
+      dest: d2
+
+  uses:
+    - generate.file
+    - generate.dir

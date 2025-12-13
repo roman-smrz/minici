@@ -1,0 +1,51 @@
+module shell
+
+import common
+
+asset scripts:
+    path: ../asset/shell
+
+
+test ShellPrepare:
+    node n
+    shell on n as git_init:
+        mkdir -p dir_r1
+        git -C dir_r1 -c init.defaultBranch=master init -q
+        git -C dir_r1 -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        touch dir_r1/file_r1
+        git -C dir_r1 add file_r1
+        git -C dir_r1 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r1'
+        git -C dir_r1 rev-parse HEAD^{tree}
+
+        mkdir -p dir_r2
+        git -C dir_r2 -c init.defaultBranch=master init -q
+        git -C dir_r2 -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        touch dir_r2/file_r2
+        git -C dir_r2 add file_r2
+        git -C dir_r2 -c user.name=test -c user.email=test commit -q --allow-empty -m 'commit r2'
+        git -C dir_r2 rev-parse HEAD^{tree}
+
+    expect /([0-9a-f]+)/ from git_init capture r1t
+    expect /([0-9a-f]+)/ from git_init capture r2t
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "${scripts.path}/minici.yaml", "run", "generate" ]
+        expect /run-finish/ from p
+
+    local:
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "${scripts.path}/minici.yaml", "shell", "combine.$r1t.$r2t" ]
+        with p:
+            send "ls ."
+            expect /d1/
+            expect /d2/
+            expect /f1/
+            expect /dir/
+        with p:
+            send "ls d1"
+            expect /file_r1/
+        with p:
+            send "ls d2"
+            expect /file_r2/
+        with p:
+            send "ls dir"
+            expect /f2/

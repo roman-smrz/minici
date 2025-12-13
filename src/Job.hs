@@ -388,6 +388,13 @@ prepareJob dir job inner = do
             subtree <- maybe return (getSubtree Nothing . makeRelative (treeSubdir tree)) mbsub $ tree
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
 
+        liftIO $ forM_ (jobUses job) $ \( jid, aname ) -> do
+            modifyError (userError . T.unpack) $ do
+                wpath <- getArtifactWorkPath dir jid aname
+                let target = checkoutPath </> wpath
+                liftIO $ createDirectoryIfMissing True $ takeDirectory target
+                copyArtifact dir jid aname target
+
         let jdir = dir </> jobStorageSubdir (jobId job)
         liftIO $ createDirectoryIfMissing True jdir
         inner checkoutPath
@@ -420,11 +427,6 @@ copyArtifact storageDir jid aname tpath = do
 
 runJob :: Job -> [ ( ArtifactSpec Evaluated, ArtifactOutput) ] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
 runJob job uses checkoutPath jdir = do
-    liftIO $ forM_ (filter ((`elem` jobUses job) . fst) uses) $ \( _, aout ) -> do
-        let target = checkoutPath </> aoutWorkPath aout
-        createDirectoryIfMissing True $ takeDirectory target
-        copyRecursive (aoutStorePath aout) target
-
     bracket (liftIO $ openFile (jdir </> "log") WriteMode) (liftIO . hClose) $ \logs -> do
         forM_ (fromMaybe [] $ jobRecipe job) $ \ep -> do
             ( p, input ) <- case ep of
