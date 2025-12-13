@@ -305,26 +305,27 @@ waitForUsedArtifacts
     => Output -> Job
     -> [ ( Job, TaskId, TVar (JobStatus JobOutput) ) ]
     -> TVar (JobStatus JobOutput)
-    -> m [ ( ArtifactSpec, ArtifactOutput ) ]
+    -> m [ ( ArtifactSpec Evaluated, ArtifactOutput ) ]
 waitForUsedArtifacts tout job results outVar = do
     origState <- liftIO $ atomically $ readTVar outVar
-    let ( selfSpecs, artSpecs ) = partition ((jobName job ==) . fst) $ jobRequiredArtifacts job
+    let ( selfSpecs, artSpecs ) = partition ((jobId job ==) . fst) $ jobRequiredArtifacts job
 
     forM_ selfSpecs $ \( _, artName@(ArtifactName tname) ) -> do
         when (not (artName `elem` map fst (jobArtifacts job))) $ do
             throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact ‘" <> tname <> "’ not produced by the job")
 
-    ujobs <- forM artSpecs $ \(ujobName@(JobName tjobName), uartName) -> do
-        case find (\( j, _, _ ) -> jobName j == ujobName) results of
-            Just ( _, _, var ) -> return ( var, ( ujobName, uartName ))
-            Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Job '" <> tjobName <> "' not found")
+    ujobs <- forM artSpecs $ \( ujobId, uartName ) -> do
+        case find (\( j, _, _ ) -> jobId j == ujobId) results of
+            Just ( _, _, var ) -> return ( var, ( ujobId, uartName ))
+            Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Job ‘" <> textJobId ujobId <> "’ not found")
 
     let loop prev = do
             ustatuses <- atomically $ do
-                ustatuses <- forM ujobs $ \(uoutVar, uartName) -> do
-                    (,uartName) <$> readTVar uoutVar
+                ustatuses <- forM ujobs $ \( uoutVar, uartSpec ) -> do
+                    (, uartSpec) <$> readTVar uoutVar
                 when (Just (map fst ustatuses) == prev) retry
-                let remains = map (fst . snd) $ filter (not . jobStatusFinished . fst) ustatuses
+                let remains = map (fromMaybe (JobName "?") . lastJobNameId . fst . snd) $
+                        filter (not . jobStatusFinished . fst) ustatuses
                 writeTVar outVar $ if null remains then origState else JobWaiting remains
                 return ustatuses
             if all (jobStatusFinished . fst) ustatuses
@@ -332,11 +333,11 @@ waitForUsedArtifacts tout job results outVar = do
                else loop $ Just $ map fst ustatuses
     ustatuses <- liftIO $ loop Nothing
 
-    forM ustatuses $ \(ustatus, spec@( JobName tjobName, uartName@(ArtifactName tartName)) ) -> do
+    forM ustatuses $ \( ustatus, spec@( tjobId, uartName@(ArtifactName tartName)) ) -> do
         case jobResult ustatus of
             Just out -> case find ((==uartName) . aoutName) $ outArtifacts out of
                 Just art -> return ( spec, art )
-                Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact '" <> tjobName <> "." <> tartName <> "' not found")
+                Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact ‘" <> textJobId tjobId <> "." <> tartName <> "’ not found")
             _ -> throwError JobSkipped
 
 outputJobFinishedEvent :: Output -> Job -> JobStatus a -> IO ()
@@ -417,7 +418,7 @@ copyArtifact storageDir jid aname tpath = do
     liftIO $ copyRecursive (adir </> "data") tpath
 
 
-runJob :: Job -> [ ( ArtifactSpec, ArtifactOutput) ] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
+runJob :: Job -> [ ( ArtifactSpec Evaluated, ArtifactOutput) ] -> FilePath -> FilePath -> ExceptT (JobStatus JobOutput) IO JobOutput
 runJob job uses checkoutPath jdir = do
     liftIO $ forM_ (filter ((`elem` jobUses job) . fst) uses) $ \( _, aout ) -> do
         let target = checkoutPath </> aoutWorkPath aout
@@ -468,7 +469,7 @@ runJob job uses checkoutPath jdir = do
                 }
 
         forM_ (jobPublish job) $ \pub -> do
-            Just aout <- return $ lookup (jpArtifact pub) $ map (\aout -> ( ( jobName job, aoutName aout ), aout )) artifacts ++ uses
+            Just aout <- return $ lookup (jpArtifact pub) $ map (\aout -> ( ( jobId job, aoutName aout ), aout )) artifacts ++ uses
             let ppath = case jpPath pub of
                     Just path
                         | hasTrailingPathSeparator path -> path </> takeFileName (aoutWorkPath aout)

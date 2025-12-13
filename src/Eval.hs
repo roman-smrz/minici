@@ -144,6 +144,12 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
     let otherRepoTrees = catMaybes otherRepoTreesMb
     if all isJust otherRepoTreesMb
       then do
+        let otherRepoIds = flip mapMaybe otherRepoTrees $ \case
+                ( repo, ( subtree, tree )) -> do
+                    guard $ maybe True (isNothing . snd) repo -- use only checkouts without explicit revision in job id
+                    Just $ JobIdTree (fst <$> repo) subtree (treeId tree)
+        let currentJobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId current) : eiCurrentIdRev
+
         checkouts <- forM (jobCheckout current) $ \dcheckout -> do
             return dcheckout
                 { jcRepo =
@@ -154,22 +160,32 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
                         ]
                 }
 
+        uses <- forM (jobUses current) $ \( jname, aname ) -> do
+            Just (Right job) <- return $ find ((jname ==) . either id jobName) evaluated
+            return ( jobId job, aname )
+
         destinations <- forM (jobPublish current) $ \dpublish -> do
+            let ( jname, _ ) = jpArtifact dpublish
+            jid <- if
+                | jname == jobName current -> return currentJobId
+                | otherwise -> do
+                    Just (Right job) <- return $ find ((jname ==) . either id jobName) evaluated
+                    return $ jobId job
+
             case lookup (jpDestination dpublish) eiDestinations of
-                Just dest -> return $ dpublish { jpDestination = dest }
+                Just dest -> return dpublish
+                    { jpArtifact = ( jid, snd (jpArtifact dpublish) )
+                    , jpDestination = dest
+                    }
                 Nothing -> throwError $ OtherEvalError $ "no url defined for destination ‘" <> textDestinationName (jpDestination dpublish) <> "’"
 
-        let otherRepoIds = flip mapMaybe otherRepoTrees $ \case
-                ( repo, ( subtree, tree )) -> do
-                    guard $ maybe True (isNothing . snd) repo -- use only checkouts without explicit revision in job id
-                    Just $ JobIdTree (fst <$> repo) subtree (treeId tree)
         let job = Job
-                { jobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId current) : eiCurrentIdRev
+                { jobId = currentJobId
                 , jobName = jobName current
                 , jobCheckout = checkouts
                 , jobRecipe = jobRecipe current
                 , jobArtifacts = jobArtifacts current
-                , jobUses = jobUses current
+                , jobUses = uses
                 , jobPublish = destinations
                 }
         evalJobs evaluating (Right job : evaluated) repos dset reqs

@@ -22,7 +22,7 @@ data Job' d = Job
     , jobCheckout :: [ JobCheckout d ]
     , jobRecipe :: Maybe [ Either CreateProcess Text ]
     , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
-    , jobUses :: [ ArtifactSpec ]
+    , jobUses :: [ ArtifactSpec d ]
     , jobPublish :: [ JobPublish d ]
     }
 
@@ -42,7 +42,7 @@ stringJobName (JobName name) = T.unpack name
 textJobName :: JobName -> Text
 textJobName (JobName name) = name
 
-jobRequiredArtifacts :: Job' d -> [ ArtifactSpec ]
+jobRequiredArtifacts :: Ord (JobId' d) => Job' d -> [ ArtifactSpec d ]
 jobRequiredArtifacts job = nubOrd $ jobUses job ++ (map jpArtifact $ jobPublish job)
 
 
@@ -61,7 +61,7 @@ type family JobDestination d :: Type where
     JobDestination Evaluated = Destination
 
 data JobPublish d = JobPublish
-    { jpArtifact :: ArtifactSpec
+    { jpArtifact :: ArtifactSpec d
     , jpDestination :: JobDestination d
     , jpPath :: Maybe FilePath
     }
@@ -70,7 +70,7 @@ data JobPublish d = JobPublish
 data ArtifactName = ArtifactName Text
     deriving (Eq, Ord, Show)
 
-type ArtifactSpec = ( JobName, ArtifactName )
+type ArtifactSpec d = ( JobId' d, ArtifactName )
 
 
 data JobSet' d = JobSet
@@ -129,3 +129,10 @@ parseJobRef = JobRef . go 0 ""
             Just ( '(', rest' ) -> go (plevel + 1) (cur <> part) rest'
             Just ( ')', rest' ) -> go (plevel - 1) (cur <> part) rest'
             _                   -> [ cur <> part ]
+
+lastJobNameId :: JobId -> Maybe JobName
+lastJobNameId (JobId ids) = go Nothing ids
+  where
+    go _ (JobIdName name : rest) = go (Just name) rest
+    go cur (_ : rest) = go cur rest
+    go cur [] = cur
