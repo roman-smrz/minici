@@ -1,5 +1,13 @@
 # Revision history for MiniCI
 
+## 0.1.9 -- 2025-12-29
+
+* Reuse job status and artifacts from previous runs
+* Added `--rerun-*` command-line options to configure which jobs should be rerun
+* Job section to publish artifacts to specified destination
+* Accept literal text block for the `shell` section
+* Prepare used artifacts for the `shell` command
+
 ## 0.1.8 -- 2025-07-06
 
 * Added `shell` command to open a shell prepared for given job
