@@ -389,7 +389,7 @@ prepareJob dir job inner = do
             checkoutAt subtree $ checkoutPath </> fromMaybe "" dest
 
         liftIO $ forM_ (jobUses job) $ \( jid, aname ) -> do
-            modifyError (userError . T.unpack) $ do
+            either (throwError . userError . T.unpack) pure <=< runExceptT $ do
                 wpath <- getArtifactWorkPath dir jid aname
                 let target = checkoutPath </> wpath
                 liftIO $ createDirectoryIfMissing True $ takeDirectory target
