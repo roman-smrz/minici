@@ -7,6 +7,7 @@ module Job (
     JobStatus(..),
     jobStatusFinished, jobStatusFailed,
     JobManager(..), newJobManager, cancelAllJobs,
+    Task(..), TaskId,
     runJobs, waitForRemainingTasks,
 
     prepareJob,
@@ -145,6 +146,12 @@ data JobManager = JobManager
     , jmOpenStatusUpdates :: TVar Int
     }
 
+data Task = Task
+    { taskId :: TaskId
+    , taskJob :: Job
+    , taskStatus :: TVar (JobStatus JobOutput)
+    }
+
 newtype TaskId = TaskId Int
     deriving (Eq, Ord)
 
@@ -223,7 +230,7 @@ runManagedJob JobManager {..} tid cancel job = bracket acquire release $ \case
 
 runJobs :: JobManager -> Output -> [ Job ]
         -> (JobId -> JobStatus JobOutput -> Bool) -- ^ Rerun condition
-        -> IO [ ( Job, TVar (JobStatus JobOutput) ) ]
+        -> IO [ Task ]
 runJobs mngr@JobManager {..} tout jobs rerun = do
     results <- atomically $ do
         forM jobs $ \job -> do
@@ -292,7 +299,7 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
 
             atomically $ writeTVar outVar $ either id id res
             outputJobFinishedEvent tout job $ either id id res
-    return $ map (\( job, _, var ) -> ( job, var )) results
+    return $ map (\( job, tid, var ) -> Task tid job var ) results
 
 waitForRemainingTasks :: JobManager -> IO ()
 waitForRemainingTasks JobManager {..} = do

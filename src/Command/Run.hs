@@ -359,12 +359,12 @@ cmdRun (RunCommand RunOptions {..} args) = do
 
                 case jobsetJobsEither jobset of
                     Right jobs -> do
-                        outs <- runJobs mngr output jobs $ case roRerun of
+                        tasks <- runJobs mngr output jobs $ case roRerun of
                             RerunExplicit -> \jid status -> jid `elem` jobsetExplicitlyRequested jobset || jobStatusFailed status
                             RerunFailed -> \_ status -> jobStatusFailed status
                             RerunAll -> \_ _ -> True
                             RerunNone -> \_ _ -> False
-                        let findJob name = snd <$> find ((name ==) . jobName . fst) outs
+                        let findJob name = taskStatus <$> find ((name ==) . jobName . taskJob) tasks
                             statuses = map findJob names
                         forM_ (outputTerminal output) $ \tout -> do
                             line <- newLine tout ""
