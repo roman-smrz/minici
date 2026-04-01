@@ -259,8 +259,10 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                 atomically $ writeTVar taskStatus status
                 outputJobFinishedEvent tout taskJob status
 
+        handlerInstalled <- newEmptyMVar
         taskThread <- forkIO $ do
             handle handler $ do
+                putMVar handlerInstalled ()
                 res <- runExceptT $ do
                     duplicate <- liftIO $ atomically $ do
                         readTVar taskStatus >>= \case
@@ -305,6 +307,7 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
 
                 atomically $ writeTVar taskStatus $ either id id res
                 outputJobFinishedEvent tout taskJob $ either id id res
+        takeMVar handlerInstalled
         return Task {..}
 
 waitForRemainingTasks :: JobManager -> IO ()
