@@ -103,7 +103,12 @@ instance Command RunCommand where
     commandExec = cmdRun
 
 
-data JobSource = JobSource (TMVar (Maybe ( [ JobSet ], JobSource )))
+data JobSource = JobSource (TMVar (Maybe ( [ JobSourceItem ], JobSource )))
+
+data JobSourceItem = JobSourceItem
+    { jsiJobSet :: JobSet
+    , jsiCancelAction :: Maybe (MVar (IO ()))
+    }
 
 emptyJobSource :: MonadIO m => m JobSource
 emptyJobSource = JobSource <$> liftIO (newTMVarIO Nothing)
@@ -111,9 +116,9 @@ emptyJobSource = JobSource <$> liftIO (newTMVarIO Nothing)
 oneshotJobSource :: MonadIO m => [ JobSet ] -> m JobSource
 oneshotJobSource jobsets = do
     next <- emptyJobSource
-    JobSource <$> liftIO (newTMVarIO (Just ( jobsets, next )))
+    JobSource <$> liftIO (newTMVarIO (Just ( map (`JobSourceItem` Nothing) jobsets, next )))
 
-takeJobSource :: JobSource -> STM (Maybe ( [ JobSet ], JobSource ))
+takeJobSource :: JobSource -> STM (Maybe ( [ JobSourceItem ], JobSource ))
 takeJobSource (JobSource tmvar) = takeTMVar tmvar
 
 mergeSources :: [ JobSource ] -> IO JobSource
@@ -135,7 +140,7 @@ mergeSources sources = do
     return $ JobSource tmvar
 
   where
-    select :: [ JobSource ] -> STM ( [ JobSet ], [ JobSource ] )
+    select :: [ JobSource ] -> STM ( [ JobSourceItem ], [ JobSource ] )
     select [] = retry
     select (x@(JobSource tmvar) : xs) = do
         tryTakeTMVar tmvar >>= \case
@@ -221,8 +226,9 @@ watchBranchSource branch = do
     root <- getJobRoot
     repo <- getDefaultRepo
     einputBase <- getEvalInput
+    output <- getOutput
     getCurrentTip <- watchBranch repo branch
-    let go prev tmvar = do
+    let go running prev tmvar = do
             cur <- atomically $ do
                 getCurrentTip >>= \case
                     Just cur -> do
@@ -236,17 +242,29 @@ watchBranchSource branch = do
                 let einput = einputBase
                         { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
                         }
-                either (fail . T.unpack . textEvalError) return =<<
+                jsiJobSet <- either (fail . T.unpack . textEvalError) return =<<
                     flip runEval einput . evalJobSet [ ( Nothing, tree ) ] =<< loadJobSetFromRoot root commit
+                jsiCancelAction <- Just <$> newEmptyMVar
+                return JobSourceItem {..}
+
+            obsolete <- listCommits repo (textCommitId (commitId cur) <> ".." <> textCommitId (commitId prev))
+            obsoleteIds <- forM obsolete $ \commit -> do
+                tree <- getCommitTree commit
+                return $ JobSetId $ JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
+
+            let ( cancel, keep ) = span ((`elem` obsoleteIds) . jobsetId . jsiJobSet) running
+            mapM_ (mapM_ (join . readMVar) . jsiCancelAction) cancel
+
             nextvar <- newEmptyTMVarIO
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
-            go cur nextvar
+            go (reverse jobsets ++ keep) cur nextvar
 
     liftIO $ do
         tmvar <- newEmptyTMVarIO
         atomically getCurrentTip >>= \case
-            Just commit ->
-                void $ forkIO $ go commit tmvar
+            Just commit -> do
+                outputEvent output $ TestMessage $ "watch-branch-started " <> branch
+                void $ forkIO $ go [] commit tmvar
             Nothing -> do
                 T.hPutStrLn stderr $ "Branch ‘" <> branch <> "’ not found"
                 atomically $ putTMVar tmvar Nothing
@@ -266,10 +284,11 @@ watchTagSource pat = do
                 let einput = einputBase
                         { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
                         }
-                jobset <- either (fail . T.unpack . textEvalError) return =<<
+                jsiJobSet <- either (fail . T.unpack . textEvalError) return =<<
                     flip runEval einput . evalJobSet [ ( Nothing, tree ) ] =<< loadJobSetFromRoot root (tagObject tag)
+                let jsiCancelAction = Nothing
                 nextvar <- newEmptyTMVarIO
-                atomically $ putTMVar tmvar $ Just ( [ jobset ], JobSource nextvar )
+                atomically $ putTMVar tmvar $ Just ( [ JobSourceItem {..} ], JobSource nextvar )
                 go nextvar
               else do
                 go tmvar
@@ -345,22 +364,22 @@ cmdRun (RunCommand RunOptions {..} args) = do
             loop names (Just ( [], next )) = do
                 loop names =<< atomically (takeJobSource next)
 
-            loop pnames (Just ( jobset : rest, next )) = do
-                let names = nub $ (pnames ++) $ map jobName $ jobsetJobs jobset
+            loop pnames (Just ( JobSourceItem {..} : rest, next )) = do
+                let names = nub $ (pnames ++) $ map jobName $ jobsetJobs jsiJobSet
                 when (names /= pnames) $ do
                     forM_ mbHeaderLine $ \headerLine -> do
                         redrawLine headerLine $ T.concat $
                             T.replicate (8 + 50) " " :
                             map ((" " <>) . fitToLength 7 . textJobName) names
 
-                let commit = jobsetCommit jobset
+                let commit = jobsetCommit jsiJobSet
                     shortCid = T.pack $ take 7 $ maybe (repeat ' ') (showCommitId . commitId) commit
                 shortDesc <- fitToLength 50 <$> maybe (return "") getCommitTitle commit
 
-                case jobsetJobsEither jobset of
+                case jobsetJobsEither jsiJobSet of
                     Right jobs -> do
                         tasks <- runJobs mngr output jobs $ case roRerun of
-                            RerunExplicit -> \jid status -> jid `elem` jobsetExplicitlyRequested jobset || jobStatusFailed status
+                            RerunExplicit -> \jid status -> jid `elem` jobsetExplicitlyRequested jsiJobSet || jobStatusFailed status
                             RerunFailed -> \_ status -> jobStatusFailed status
                             RerunAll -> \_ _ -> True
                             RerunNone -> \_ _ -> False
@@ -375,7 +394,13 @@ cmdRun (RunCommand RunOptions {..} args) = do
                             void $ forkIO $ do
                                 void $ try @SomeException $ restore $ waitForJobStatuses statuses
                                 changeCount (subtract 1)
+                        case jsiCancelAction of
+                            Just var -> putMVar var $ mapM_ cancelTask tasks
+                            Nothing -> return ()
                     Left err -> do
+                        case jsiCancelAction of
+                            Just var -> putMVar var $ return ()
+                            Nothing -> return ()
                         forM_ (outputTerminal output) $ flip newLine $
                             "\ESC[91m" <> shortCid <> "\ESC[0m" <> " " <> shortDesc <> " \ESC[91m" <> T.pack err <> "\ESC[0m"
                         outputEvent output $ TestMessage $ "jobset-fail " <> T.pack err
