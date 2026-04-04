@@ -266,6 +266,7 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                                 mbStatus -> do
                                     when (isJust mbStatus) $ do
                                         liftIO $ removeDirectoryRecursive jdir
+                                    liftIO $ outputEvent tout $ JobEnqueued (jobId taskJob)
                                     uses <- waitForUsedArtifacts tout taskJob results taskStatus
                                     runManagedJob mngr taskId (return JobCancelled) $ do
                                         liftIO $ atomically $ writeTVar taskStatus JobRunning

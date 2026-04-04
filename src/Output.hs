@@ -42,6 +42,7 @@ data OutputEvent
     = OutputMessage Text
     | TestMessage Text
     | LogMessage Text
+    | JobEnqueued JobId
     | JobStarted JobId
     | JobFinished JobId Text
     | JobIsDuplicate JobId Text
@@ -103,6 +104,9 @@ outputEvent out@Output {..} = liftIO . \case
 
     LogMessage msg -> do
         forM_ outLogs $ \h -> outStrLn out h msg
+
+    JobEnqueued jid -> do
+        forM_ outTest $ \h -> outStrLn out h ("job-enqueue " <> textJobId jid)
 
     JobStarted jid -> do
         forM_ outLogs $ \h -> outStrLn out h ("Started " <> textJobId jid)
