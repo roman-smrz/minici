@@ -1,0 +1,28 @@
+job first:
+  shell: |
+    mkfifo wait
+    realpath wait
+    cat wait
+    touch x
+
+  artifact out:
+    path: x
+
+
+job second:
+  uses:
+    - first.out
+
+  shell: |
+    mv x y
+
+  artifact out:
+    path: y
+
+
+job third:
+  shell: |
+    touch z
+
+  artifact out:
+    path: z
