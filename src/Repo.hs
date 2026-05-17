@@ -13,7 +13,8 @@ module Repo (
     readTree, readTreeId, tryReadTree,
     readBranch,
     readTag,
-    listCommits,
+    listCommits, listCommitsFrom,
+    mergeBase,
     findUpstreamRef,
 
     getCommitTree,
@@ -231,11 +232,32 @@ readTag repo tag = do
 
 listCommits :: MonadIO m => Repo -> Text -> m [ Commit ]
 listCommits commitRepo range = liftIO $ do
-    out <- runGitCommand commitRepo [ "log", "--pretty=%H", "--first-parent", "--reverse", T.unpack range ]
+    out <- runGitCommand commitRepo [ "rev-list", "--first-parent", "--reverse", T.unpack range ]
     forM (lines out) $ \cid -> do
         let commitId_ = CommitId (BC.pack cid)
         commitDetails <- newMVar Nothing
         return Commit {..}
+
+listCommitsFrom :: MonadIO m => Repo -> [ CommitId ] -> [ CommitId ] -> m [ Commit ]
+listCommitsFrom commitRepo from except = liftIO $ do
+    out <- runGitCommand commitRepo $ concat
+        [ [ "rev-list", "--first-parent", "--reverse" ]
+        , map showCommitId from
+        , "--not" : map showCommitId except
+        ]
+    forM (lines out) $ \cid -> do
+        let commitId_ = CommitId (BC.pack cid)
+        commitDetails <- newMVar Nothing
+        return Commit {..}
+
+mergeBase :: MonadIO m => Repo -> [ CommitId ] -> m [ Commit ]
+mergeBase commitRepo cids = liftIO $ do
+    out <- runGitCommand commitRepo $ "merge-base" : "--all" : "--octopus" : map showCommitId cids
+    forM (lines out) $ \cid -> do
+        let commitId_ = CommitId (BC.pack cid)
+        commitDetails <- newMVar Nothing
+        return Commit {..}
+
 
 findUpstreamRef :: MonadIO m => Repo -> Text -> m (Maybe Text)
 findUpstreamRef repo@GitRepo {..} ref = liftIO $ do
