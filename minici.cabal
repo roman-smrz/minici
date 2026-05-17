@@ -58,6 +58,7 @@ executable minici
         Config
         Destination
         Eval
+        Expression
         FileUtils
         Job
         Job.Types

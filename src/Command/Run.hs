@@ -14,15 +14,14 @@ import Data.List
 import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.IO qualified as T
 
 import System.Console.GetOpt
 import System.FilePath.Glob
-import System.IO
 
 import Command
 import Config
 import Eval
+import Expression
 import Job
 import Job.Types
 import Output
@@ -221,22 +220,18 @@ rangeSource base tip = do
     oneshotJobSource jobsets
 
 
-watchBranchSource :: Text -> CommandExec JobSource
-watchBranchSource branch = do
+watchExpressionSource :: RangeExpression -> CommandExec JobSource
+watchExpressionSource expr = do
     root <- getJobRoot
     repo <- getDefaultRepo
     einputBase <- getEvalInput
-    output <- getOutput
-    getCurrentTip <- watchBranch repo branch
     let go running prev tmvar = do
             cur <- atomically $ do
-                getCurrentTip >>= \case
-                    Just cur -> do
-                        when (cur == prev) retry
-                        return cur
-                    Nothing -> retry
+                cur <- evaluateRange expr
+                when (cur == prev) retry
+                return cur
 
-            commits <- listCommits repo (textCommitId (commitId prev) <> ".." <> textCommitId (commitId cur))
+            commits <- getAddedRangeCommits repo prev cur
             jobsets <- forM commits $ \commit -> do
                 tree <- getCommitTree commit
                 let einput = einputBase
@@ -247,7 +242,7 @@ watchBranchSource branch = do
                 jsiCancelAction <- Just <$> newEmptyMVar
                 return JobSourceItem {..}
 
-            obsolete <- listCommits repo (textCommitId (commitId cur) <> ".." <> textCommitId (commitId prev))
+            obsolete <- getAddedRangeCommits repo cur prev
             obsoleteIds <- forM obsolete $ \commit -> do
                 tree <- getCommitTree commit
                 return $ JobSetId $ JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
@@ -261,14 +256,16 @@ watchBranchSource branch = do
 
     liftIO $ do
         tmvar <- newEmptyTMVarIO
-        atomically getCurrentTip >>= \case
-            Just commit -> do
-                outputEvent output $ TestMessage $ "watch-branch-started " <> branch
-                void $ forkIO $ go [] commit tmvar
-            Nothing -> do
-                T.hPutStrLn stderr $ "Branch ‘" <> branch <> "’ not found"
-                atomically $ putTMVar tmvar Nothing
+        void $ forkIO $ go [] EmptyCommitRange tmvar
         return $ JobSource tmvar
+
+watchBranchSource :: Text -> CommandExec JobSource
+watchBranchSource branch = do
+    repo <- getDefaultRepo
+    output <- getOutput
+    expr <- evaluateDeclaredRange repo $ RangeExpression (WatchedRef branch) (StaticRef branch)
+    outputEvent output $ TestMessage $ "watch-branch-started " <> branch
+    watchExpressionSource expr
 
 watchTagSource :: Pattern -> CommandExec JobSource
 watchTagSource pat = do
