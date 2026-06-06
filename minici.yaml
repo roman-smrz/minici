@@ -1,8 +1,8 @@
 job build:
-  shell:
-    - cabal build -fci
-    - mkdir build
-    - cp $(cabal list-bin minici) build/minici
+  shell: |
+    cabal build --ghc-options='-Werror -Wno-error=unused-imports'
+    mkdir build
+    cp $(cabal list-bin minici) build/minici
   artifact bin:
     path: build/minici
 
