@@ -3,6 +3,7 @@ module Output (
     OutputType(..),
     OutputEvent(..),
     OutputFootnote(..),
+    MonadOutput(..),
 
     withOutput,
     outputTerminal,
@@ -54,6 +55,10 @@ data OutputFootnote = OutputFootnote
     , footnoteTerminal :: Maybe TerminalFootnote
     }
     deriving (Eq)
+
+
+class Monad m => MonadOutput m where
+    getOutput :: m Output
 
 
 withOutput :: [ OutputType ] -> (Output -> IO a) -> IO a

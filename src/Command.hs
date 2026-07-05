@@ -99,6 +99,9 @@ tfail err = liftIO $ do
     T.hPutStrLn stderr err
     exitFailure
 
+instance MonadOutput CommandExec where
+    getOutput = CommandExec (asks ciOutput)
+
 data CommandInput = CommandInput
     { ciOptions :: CommonOptions
     , ciRootPath :: FilePath
@@ -147,9 +150,6 @@ getEvalInput = CommandExec $ do
 cmdEvalWith :: (EvalInput -> EvalInput) -> Eval a -> CommandExec a
 cmdEvalWith f ev = do
     either (tfail . textEvalError) return =<< liftIO . runEval ev . f =<< getEvalInput
-
-getOutput :: CommandExec Output
-getOutput = CommandExec (asks ciOutput)
 
 getStorageDir :: CommandExec FilePath
 getStorageDir = CommandExec (asks ciStorageDir)

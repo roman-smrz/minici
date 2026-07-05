@@ -19,6 +19,7 @@ import Data.Maybe
 import Data.Text (Text)
 
 import Job.Types
+import Output
 import Repo
 
 
@@ -62,13 +63,17 @@ textCommitRef :: CommitRef -> Text
 textCommitRef (CommitRef suffix cid) = textCommitId cid <> suffix
 
 
-evaluateDeclaredRevision :: (MonadIO m, MonadFail m) => Repo -> DeclaredRevisionExpression -> m RevisionExpression
+evaluateDeclaredRevision :: (MonadIO m, MonadFail m, MonadOutput m) => Repo -> DeclaredRevisionExpression -> m RevisionExpression
 evaluateDeclaredRevision repo = \case
     StaticRef ref -> StaticRef <$> readCommit repo ref
-    WatchedRef ref -> WatchedRef . BranchRef <$> watchBranch repo ref
+    WatchedRef ref -> do
+        watched <- watchBranch repo ref
+        output <- getOutput
+        outputEvent output $ TestMessage $ "watch-branch-started " <> ref
+        return $ WatchedRef $ BranchRef watched
     ModifiedRevision suffix rev -> ModifiedRevision suffix <$> evaluateDeclaredRevision repo rev
 
-evaluateDeclaredRange :: (MonadIO m, MonadFail m) => Repo -> DeclaredRangeExpression -> m RangeExpression
+evaluateDeclaredRange :: (MonadIO m, MonadFail m, MonadOutput m) => Repo -> DeclaredRangeExpression -> m RangeExpression
 evaluateDeclaredRange repo (RangeExpression a b) =
     RangeExpression <$> evaluateDeclaredRevision repo a <*> evaluateDeclaredRevision repo b
 

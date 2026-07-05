@@ -262,9 +262,7 @@ watchExpressionSource expr = do
 watchBranchSource :: Text -> CommandExec JobSource
 watchBranchSource branch = do
     repo <- getDefaultRepo
-    output <- getOutput
     expr <- evaluateDeclaredRange repo $ RangeExpression (WatchedRef branch) (StaticRef branch)
-    outputEvent output $ TestMessage $ "watch-branch-started " <> branch
     watchExpressionSource expr
 
 watchTagSource :: Pattern -> CommandExec JobSource
