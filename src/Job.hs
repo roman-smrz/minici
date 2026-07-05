@@ -226,8 +226,14 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
             managed <- readTVar jmJobs
             ( job, tid, ) <$> case M.lookup (jobId job) managed of
                 Just origVar -> do
-                    newTVar . JobDuplicate (jobId job) =<< readTVar origVar
-
+                    readTVar origVar >>= \case
+                        JobCancelled -> do
+                            -- Restart previously cancelled job
+                            statusVar <- newTVar JobQueued
+                            writeTVar jmJobs $ M.insert (jobId job) statusVar managed
+                            return statusVar
+                        pstatus -> do
+                            newTVar $ JobDuplicate (jobId job) pstatus
                 Nothing -> do
                     statusVar <- newTVar JobQueued
                     writeTVar jmJobs $ M.insert (jobId job) statusVar managed
