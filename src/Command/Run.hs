@@ -8,8 +8,8 @@ import Control.Exception
 import Control.Monad
 import Control.Monad.IO.Class
 
+import Data.Char
 import Data.Containers.ListUtils
-import Data.Either
 import Data.List
 import Data.Maybe
 import Data.Text (Text)
@@ -225,6 +225,7 @@ watchExpressionSource expr = do
     root <- getJobRoot
     repo <- getDefaultRepo
     einputBase <- getEvalInput
+    let loop = isRangeExpressionDynamic expr
     let go running prev tmvar = do
             cur <- atomically $ do
                 cur <- evaluateRange expr
@@ -252,7 +253,11 @@ watchExpressionSource expr = do
 
             nextvar <- newEmptyTMVarIO
             atomically $ putTMVar tmvar $ Just ( jobsets, JobSource nextvar )
-            go (reverse jobsets ++ keep) cur nextvar
+            if loop
+              then do
+                go (reverse jobsets ++ keep) cur nextvar
+              else do
+                atomically $ putTMVar nextvar Nothing
 
     liftIO $ do
         tmvar <- newEmptyTMVarIO
@@ -299,28 +304,31 @@ cmdRun (RunCommand RunOptions {..} args) = do
     output <- getOutput
     storageDir <- getStorageDir
 
-    ( rangeOptions, jobOptions ) <- partitionEithers . concat <$> sequence
+    rangeOptions <- concat <$> sequence
         [ forM roRanges $ \range -> case T.splitOn ".." range of
             [ base, tip ]
                 | not (T.null base) && not (T.null tip)
-                -> return $ Left ( Just base, tip )
+                -> return ( Just base, tip )
             _ -> tfail $ "invalid range: " <> range
-        , forM roSinceUpstream $ return . Left . ( Nothing, )
-        , forM args $ \arg -> case T.splitOn ".." arg of
-            [ base, tip ]
-                | not (T.null base) && not (T.null tip)
-                -> return $ Left ( Just base, tip )
-            [ _ ] -> return $ Right arg
-            _ -> tfail $ "invalid argument: " <> arg
+        , forM roSinceUpstream $ return . ( Nothing, )
         ]
 
-    let ( refOptions, nameOptions ) = partition (T.elem '.') jobOptions
+    let ( nameOptions, jobOptions ) = partition (T.all $ \c -> isAlphaNum c || c == '_') args
+        ( refOptions, exprOptions ) = partition (\r -> "." `T.isInfixOf` r && not (".." `T.isInfixOf` r)) jobOptions
 
     argumentJobs <- argumentJobSource $ map JobName nameOptions
     refJobs <- refJobSource $ map parseJobRef refOptions
 
+    exprJobs <- forM exprOptions $ \trange ->
+        case parseRangeExpression trange of
+            Left err -> fail err
+            Right expr -> do
+                repo <- getDefaultRepo
+                range <- evaluateDeclaredRange repo expr
+                watchExpressionSource range
+
     defaultSource <- getJobRoot >>= \case
-        _ | not (null rangeOptions && null roNewCommitsOn && null roNewTags && null jobOptions) -> do
+        _ | not (null rangeOptions && null roNewCommitsOn && null roNewTags && null args) -> do
             emptyJobSource
 
         JobRootRepo repo -> do
@@ -344,7 +352,7 @@ cmdRun (RunCommand RunOptions {..} args) = do
     liftIO $ do
         mngr <- newJobManager storageDir optJobs
 
-        source <- mergeSources $ concat [ [ defaultSource, argumentJobs, refJobs ], ranges, branches, tags ]
+        source <- mergeSources $ concat [ [ defaultSource, argumentJobs, refJobs ], exprJobs, ranges, branches, tags ]
         mbHeaderLine <- mapM (flip newLine "") (outputTerminal output)
 
         threadCount <- newTVarIO (0 :: Int)

@@ -96,6 +96,7 @@ executable minici
         Glob ^>= { 0.10.2 },
         hinotify ^>= { 0.4 },
         HsYAML ^>= { 0.2 },
+        megaparsec ^>= { 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8 },
         mtl ^>= { 2.2, 2.3 },
         parser-combinators ^>= { 1.3 },
         process ^>= { 1.6 },
