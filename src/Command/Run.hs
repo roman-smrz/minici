@@ -410,7 +410,14 @@ cmdRun (RunCommand RunOptions {..} args) = do
                         outputEvent output $ LogMessage $ "Jobset failed: " <> shortCid <> " " <> T.pack err
                 loop names (Just ( rest, next ))
 
-        handle @SomeException (\_ -> cancelAllJobs mngr) $ do
+        handle @SomeException
+            (\e -> do
+                if | Just UserInterrupt <- fromException e
+                   -> outputEvent output RunInterruptedByUser
+                   | otherwise
+                   -> outputMessage output $ "exception in run loop: " <> T.pack (show e)
+                cancelAllJobs mngr
+            ) $ do
             loop [] =<< atomically (takeJobSource source)
             waitForJobs
         waitForJobs

@@ -49,6 +49,7 @@ data OutputEvent
     | JobIsDuplicate JobId Text
     | JobPreviouslyFinished JobId Text
     | JobWasSkipped JobId
+    | RunInterruptedByUser
 
 data OutputFootnote = OutputFootnote
     { footnoteText :: Text
@@ -132,6 +133,11 @@ outputEvent out@Output {..} = liftIO . \case
     JobWasSkipped jid -> do
         forM_ outLogs $ \h -> outStrLn out h ("Skipped " <> textJobId jid)
         forM_ outTest $ \h -> outStrLn out h ("job-skip " <> textJobId jid)
+
+    RunInterruptedByUser -> do
+        forM_ outTerminal $ \term -> void $ newLine term "\rInterrupted by user"
+        forM_ outLogs $ \h -> outStrLn out h "Interrupted by user"
+        forM_ outTest $ \h -> outStrLn out h "run-user-interrupt"
 
 outputFootnote :: Output -> Text -> IO OutputFootnote
 outputFootnote out@Output {..} footnoteText = do
