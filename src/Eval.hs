@@ -16,6 +16,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
 
+import Data.Either
 import Data.List
 import Data.Maybe
 import Data.Text (Text)
@@ -117,32 +118,42 @@ collectJobSetRepos revisionOverrides dset = do
                 commit <- readCommit repo "HEAD"
                 return ( rname, RepoRefCommit commit )
 
+getJobExprDependencies :: DeclaredJob -> [ JobSetDep ]
+getJobExprDependencies _ = concat
+    [
+    ]
+
 collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), RepoDepLevel ) ]
 collectOtherRepos dset decl = do
     jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
     let gatherDependencies seen (d : ds)
             | d `elem` seen = gatherDependencies seen ds
             | Just job <- find ((d ==) . jobName) jobs
-                            = gatherDependencies (d : seen) (map fst (jobRequiredArtifacts job) ++ ds)
-            | otherwise     = gatherDependencies (d : seen) ds
-        gatherDependencies seen [] = seen
+            = do
+                let allDeps = getJobExprDependencies job
+                    checkoutRepoDeps = map (\JobCheckout {..} -> ( jcRepo, RepoDepSubtree $ fromMaybe "" jcSubtree )) $ jobCheckout job
+                    artifactNameDeps = map fst (jobRequiredArtifacts job)
+                let ( nameDeps, repoDeps ) = partitionEithers $ map depsToEithers allDeps
+                    nameDeps' = artifactNameDeps ++ nameDeps
+                    repoDeps' = checkoutRepoDeps ++ repoDeps
+                (repoDeps' ++) <$> gatherDependencies (d : seen) (nameDeps' ++ ds)
 
-    let dependencies = gatherDependencies [] [ jobName decl ]
-    dependencyRepos <- forM dependencies $ \name -> do
-        job <- maybe (throwError $ OtherEvalError $ "job ‘" <> textJobName name <> "’ not found") return . find ((name ==) . jobName) $ jobs
-        return $ jobCheckout job
+            | otherwise     = gatherDependencies (d : seen) ds
+        gatherDependencies _ [] = return []
+
+        depsToEithers = \case
+            SiblingJobDependency name -> Left name
+            RepoDependency rname deplevel -> Right ( Just ( rname, Nothing ), deplevel )
 
     alreadyHasDefaultRepoId <- checkIfAlreadyHasDefaultRepoId
-    let checkouts =
-            (if alreadyHasDefaultRepoId then filter (isJust . jcRepo) else id) $
-                concat dependencyRepos
+    dependencyRepos <-
+        (if alreadyHasDefaultRepoId then filter (isJust . fst) else id) <$>
+            gatherDependencies [] [ jobName decl ]
 
-    let commonSubdir reporev = foldr1 (<>) $
-            map (RepoDepSubtree . fromMaybe "" . jcSubtree) . filter ((reporev ==) . jcRepo) $ checkouts
+    let joinedLevel reporev = foldr1 (<>) $ map snd $ filter ((reporev ==) . fst) dependencyRepos
     let canonicalRepoOrder = Nothing : maybe [] (map (Just . repoName) . configRepos) (jobsetConfig dset)
-        getCheckoutsForName rname = map (\r -> ( r, commonSubdir r )) $ nub $ filter ((rname ==) . fmap fst) $ map jcRepo checkouts
-    return $ concatMap getCheckoutsForName canonicalRepoOrder
-
+    let getDepLevelForName rname = map (\r -> ( r, joinedLevel r )) $ nub $ filter ((rname ==) . fmap fst) $ map fst dependencyRepos
+    return $ concatMap getDepLevelForName canonicalRepoOrder
 
 evalJobs
     :: [ DeclaredJob ] -> [ Either JobName Job ]
