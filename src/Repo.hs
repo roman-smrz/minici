@@ -2,17 +2,18 @@ module Repo (
     Repo, getRepoWorkDir,
     DeclaredRepo(..),
     RepoName(..), textRepoName, showRepoName,
-    Commit, commitId,
+    Commit, commitId, commitRepo,
     CommitId, textCommitId, showCommitId,
     Tree, treeId, treeRepo, treeSubdir,
     TreeId, textTreeId, showTreeId,
     Tag(..),
+    TagId, textTagId, showTagId,
 
     openRepo,
     readCommit, readCommitId, tryReadCommit,
     readTree, readTreeId, tryReadTree,
     readBranch,
-    readTag,
+    readTag, tryReadTag,
     listCommits, listCommitsFrom,
     mergeBase,
     findUpstreamRef,
@@ -109,6 +110,7 @@ data Tree = Tree
 
 data Tag a = Tag
     { tagTag :: Text
+    , tagId :: TagId
     , tagObject :: a
     , tagMessage :: Text
     }
@@ -138,6 +140,15 @@ textTreeId (TreeId tid) = decodeUtf8 tid
 
 showTreeId :: TreeId -> String
 showTreeId (TreeId tid) = BC.unpack tid
+
+newtype TagId = TagId ByteString
+    deriving (Eq, Ord)
+
+textTagId :: TagId -> Text
+textTagId (TagId tid) = decodeUtf8 tid
+
+showTagId :: TagId -> String
+showTagId (TagId tid) = BC.unpack tid
 
 
 runGitCommand :: MonadIO m => Repo -> [ String ] -> m String
@@ -213,14 +224,22 @@ readCommitFromFile repo@GitRepo {..} path = liftIO $ do
 readBranch :: MonadIO m => Repo -> Text -> m (Maybe Commit)
 readBranch repo branch = readCommitFromFile repo ("refs/heads" </> T.unpack branch)
 
-readTag :: MonadIO m => Repo -> Text -> m (Maybe (Tag Commit))
-readTag repo tag = do
-    ( infoPart, message ) <-
+readTag :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Tag Commit)
+readTag repo@GitRepo {..} tag = maybe (fail err) return =<< tryReadTag repo tag
+  where err = "tag ‘" <> T.unpack tag <> "’ not found in ‘" <> gitDir <> "’"
+
+tryReadTag :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Maybe (Tag Commit))
+tryReadTag repo tag = do
+    mbTagId <- fmap TagId <$> tryReadObjectId repo "tag" tag
+    mbCat <- forM mbTagId $ \tid ->
         fmap (fmap (drop 1) . span (not . null) . lines) $
-        runGitCommand repo [ "cat-file", "tag", T.unpack tag ]
-    let info = map (fmap (drop 1) . span (/= ' ')) infoPart
+        runGitCommand repo [ "cat-file", "tag", showTagId tid ]
 
     sequence $ do
+        tagId <- mbTagId
+        ( infoPart, message ) <- mbCat
+        let info = map (fmap (drop 1) . span (/= ' ')) infoPart
+
         otype <- lookup "type" info
         guard (otype == "commit")
         tagTag <- T.pack <$> lookup "tag" info
@@ -428,7 +447,7 @@ repoInotify repo@GitRepo {..} = modifyMVar gitInotify $ \case
                     mapM_ (`writeTVar` commit) tvars
 
         _ <- addWatch inotify [ MoveIn ] (BC.pack tagsDir) $ \event -> do
-            readTag repo (decodeUtf8 $ filePath event) >>= \case
+            tryReadTag repo (decodeUtf8 $ filePath event) >>= \case
                 Just tag -> atomically $ writeTChan tagsChan tag
                 Nothing  -> return ()
 

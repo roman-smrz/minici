@@ -60,14 +60,19 @@ cmdJobId (JobIdCommand JobIdOptions {..} ref) = do
         outputMessage out ""
         forM_ ids $ \case
             JobIdName name -> outputMessage out $ textJobName name <> " (job name)"
-            JobIdCommit mbrepo cid -> outputMessage out $ T.concat
+            JobIdRepo mbrepo (JobIdCommit cid) -> outputMessage out $ T.concat
                 [ textCommitId cid, " (commit"
                 , maybe "" (\name -> " from ‘" <> textRepoName name <> "’ repo") mbrepo
                 , ")"
                 ]
-            JobIdTree mbrepo subtree cid -> outputMessage out $ T.concat
+            JobIdRepo mbrepo (JobIdTree subtree cid) -> outputMessage out $ T.concat
                 [ textTreeId cid, " (tree"
                 , maybe "" (\name -> " from ‘" <> textRepoName name <> "’ repo") mbrepo
                 , if not (null subtree) then ", subtree ‘" <> T.pack subtree <> "’" else ""
+                , ")"
+                ]
+            JobIdRepo mbrepo (JobIdTag cid tid) -> outputMessage out $ T.concat
+                [ textCommitId cid, "^", textTagId tid, " (commit following tag"
+                , maybe "" (\name -> " from ‘" <> textRepoName name <> "’ repo") mbrepo
                 , ")"
                 ]

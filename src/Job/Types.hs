@@ -5,6 +5,7 @@ import Data.Kind
 import Data.Text (Text)
 import Data.Text qualified as T
 
+import System.FilePath
 import System.FilePath.Glob
 import System.Process
 
@@ -100,8 +101,13 @@ newtype JobSetId = JobSetId [ JobIdPart ]
 
 data JobIdPart
     = JobIdName JobName
-    | JobIdCommit (Maybe RepoName) CommitId
-    | JobIdTree (Maybe RepoName) FilePath TreeId
+    | JobIdRepo (Maybe RepoName) JobIdRepoPart
+    deriving (Eq, Ord)
+
+data JobIdRepoPart
+    = JobIdTree FilePath TreeId
+    | JobIdCommit CommitId
+    | JobIdTag CommitId TagId
     deriving (Eq, Ord)
 
 newtype JobRef = JobRef [ Text ]
@@ -110,8 +116,9 @@ newtype JobRef = JobRef [ Text ]
 textJobIdPart :: JobIdPart -> Text
 textJobIdPart = \case
     JobIdName name -> textJobName name
-    JobIdCommit _ cid -> textCommitId cid
-    JobIdTree _ _ tid -> textTreeId tid
+    JobIdRepo _ (JobIdTree _ tid) -> textTreeId tid
+    JobIdRepo _ (JobIdCommit cid) -> textCommitId cid
+    JobIdRepo _ (JobIdTag cid tid) -> textCommitId cid <> "^" <> textTagId tid
 
 textJobId :: JobId -> Text
 textJobId (JobId ids) = T.intercalate "." $ map textJobIdPart ids
@@ -136,3 +143,32 @@ lastJobNameId (JobId ids) = go Nothing ids
     go _ (JobIdName name : rest) = go (Just name) rest
     go cur (_ : rest) = go cur rest
     go cur [] = cur
+
+
+data JobSetDep
+    = SiblingJobDependency JobName
+    | RepoDependency RepoName RepoDepLevel
+
+data RepoDepLevel
+    = RepoDepSubtree FilePath
+    | RepoDepCommit
+    | RepoDepTag
+
+instance Semigroup RepoDepLevel where
+    RepoDepTag <> _ = RepoDepTag
+    _ <> RepoDepTag = RepoDepTag
+
+    RepoDepCommit <> _ = RepoDepCommit
+    _ <> RepoDepCommit = RepoDepCommit
+
+    RepoDepSubtree path <> RepoDepSubtree path' = RepoDepSubtree $
+        joinPath $ commonPrefix (splitDirectories path) (splitDirectories path')
+      where
+        commonPrefix (x : xs) (y : ys) | x == y = x : commonPrefix xs ys
+        commonPrefix _        _                 = []
+
+repoDepPath :: RepoDepLevel -> FilePath
+repoDepPath = \case
+    RepoDepSubtree path -> path
+    RepoDepCommit -> ""
+    RepoDepTag -> ""

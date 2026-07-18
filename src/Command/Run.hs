@@ -166,14 +166,14 @@ argumentJobSource names = do
         Nothing -> return []
     let cidPart = case jobRoot of
             JobRootConfig {} -> []
-            JobRootRepo {} -> map (JobIdTree Nothing "" . treeId) jobtree
+            JobRootRepo {} -> map (JobIdRepo Nothing . JobIdTree "" . treeId) jobtree
     forM_ names $ \name ->
         case find ((name ==) . jobName) (configJobs config) of
             Just _  -> return ()
             Nothing -> tfail $ "job ‘" <> textJobName name <> "’ not found"
 
     jset <- cmdEvalWith (\ei -> ei { eiCurrentIdRev = cidPart ++ eiCurrentIdRev ei }) $ do
-        evalJobSetSelected names (map ( Nothing, ) jobtree) JobSet
+        evalJobSetSelected names (map (( Nothing , ) . RepoRefTree) jobtree) JobSet
             { jobsetId = ()
             , jobsetConfig = Just config
             , jobsetCommit = jcommit
@@ -215,8 +215,8 @@ rangeSource base tip = do
     jobsets <- forM commits $ \commit -> do
         tree <- getCommitTree commit
         cmdEvalWith (\ei -> ei
-            { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev ei
-            }) . evalJobSet [ ( Nothing, tree) ] =<< loadJobSetFromRoot root commit
+            { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev ei
+            }) . evalJobSet [ ( Nothing, RepoRefTree tree ) ] =<< loadJobSetFromRoot root commit
     oneshotJobSource jobsets
 
 
@@ -236,17 +236,17 @@ watchExpressionSource expr = do
             jobsets <- forM commits $ \commit -> do
                 tree <- getCommitTree commit
                 let einput = einputBase
-                        { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
+                        { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev einputBase
                         }
                 jsiJobSet <- either (fail . T.unpack . textEvalError) return =<<
-                    flip runEval einput . evalJobSet [ ( Nothing, tree ) ] =<< loadJobSetFromRoot root commit
+                    flip runEval einput . evalJobSet [ ( Nothing, RepoRefTree tree ) ] =<< loadJobSetFromRoot root commit
                 jsiCancelAction <- Just <$> newEmptyMVar
                 return JobSourceItem {..}
 
             obsolete <- getAddedRangeCommits repo cur prev
             obsoleteIds <- forM obsolete $ \commit -> do
                 tree <- getCommitTree commit
-                return $ JobSetId $ JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
+                return $ JobSetId $ JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev einputBase
 
             let ( cancel, keep ) = span ((`elem` obsoleteIds) . jobsetId . jsiJobSet) running
             mapM_ (mapM_ (join . readMVar) . jsiCancelAction) cancel
@@ -282,10 +282,10 @@ watchTagSource pat = do
               then do
                 tree <- getCommitTree $ tagObject tag
                 let einput = einputBase
-                        { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev einputBase
+                        { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev einputBase
                         }
                 jsiJobSet <- either (fail . T.unpack . textEvalError) return =<<
-                    flip runEval einput . evalJobSet [ ( Nothing, tree ) ] =<< loadJobSetFromRoot root (tagObject tag)
+                    flip runEval einput . evalJobSet [ ( Nothing, RepoRefTree tree ) ] =<< loadJobSetFromRoot root (tagObject tag)
                 let jsiCancelAction = Nothing
                 nextvar <- newEmptyTMVarIO
                 atomically $ putTMVar tmvar $ Just ( [ JobSourceItem {..} ], JobSource nextvar )

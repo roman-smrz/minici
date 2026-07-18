@@ -2,6 +2,7 @@ module Eval (
     EvalInput(..),
     EvalError(..), textEvalError,
     Eval, runEval,
+    RepoRef(..),
 
     evalJobSet,
     evalJobSetSelected,
@@ -49,19 +50,59 @@ runEval :: Eval a -> EvalInput -> IO (Either EvalError a)
 runEval action einput = runExceptT $ flip runReaderT einput action
 
 
-commonPrefix :: Eq a => [ a ] -> [ a ] -> [ a ]
-commonPrefix (x : xs) (y : ys) | x == y = x : commonPrefix xs ys
-commonPrefix _        _                 = []
+data RepoRef
+    = RepoRefTree Tree
+    | RepoRefCommit Commit
+    | RepoRefTag Commit (Tag Commit)
+
+repoRefRepo :: RepoRef -> Repo
+repoRefRepo = \case
+    RepoRefTree tree -> treeRepo tree
+    RepoRefCommit commit -> commitRepo commit
+    RepoRefTag commit _ -> commitRepo commit
+
+repoRefTree :: (MonadIO m, MonadFail m) => RepoRef -> m Tree
+repoRefTree = \case
+    RepoRefTree tree -> return tree
+    RepoRefCommit commit -> getCommitTree commit
+    RepoRefTag commit _ -> getCommitTree commit
+
+repoRefToIdPart :: MonadIO m => RepoRef -> m JobIdRepoPart
+repoRefToIdPart = \case
+    RepoRefTree tree -> return $ JobIdTree (treeSubdir tree) (treeId tree)
+    RepoRefCommit commit -> return $ JobIdCommit (commitId commit)
+    RepoRefTag commit tag -> return $ JobIdTag (commitId commit) (tagId tag)
+
+repoRefLimit :: RepoDepLevel -> RepoRef -> Eval RepoRef
+repoRefLimit (RepoDepSubtree path) rref = do
+    tree <- repoRefTree rref
+    if  | treeSubdir tree == path -> do
+            return $ RepoRefTree tree
+        | splitDirectories (treeSubdir tree) `isPrefixOf` splitDirectories path -> do
+            tree' <- getSubtree Nothing (makeRelative (treeSubdir tree) path) tree
+            return $ RepoRefTree tree'
+        | otherwise -> do
+            throwError $ OtherEvalError $ "Can't get subtree ‘" <> T.pack path <> "’ from ‘" <> T.pack (treeSubdir tree) <> "’"
+
+repoRefLimit RepoDepCommit rref = case rref of
+    RepoRefTree _ -> throwError $ OtherEvalError $ "Can't get commit from subtree ref"
+    RepoRefCommit commit -> return $ RepoRefCommit commit
+    RepoRefTag commit _ -> return $ RepoRefCommit commit
+
+repoRefLimit RepoDepTag rref = case rref of
+    RepoRefTree _ -> throwError $ OtherEvalError $ "Can't get tag from subtree ref"
+    RepoRefCommit _ -> throwError $ OtherEvalError $ "Can't get tag from commit ref"
+    RepoRefTag commit tag -> return $ RepoRefTag commit tag
+
 
 checkIfAlreadyHasDefaultRepoId :: Eval Bool
 checkIfAlreadyHasDefaultRepoId = do
     asks (any isDefaultRepoId . eiCurrentIdRev)
   where
     isDefaultRepoId (JobIdName _) = False
-    isDefaultRepoId (JobIdCommit rname _) = isNothing rname
-    isDefaultRepoId (JobIdTree rname _ _) = isNothing rname
+    isDefaultRepoId (JobIdRepo rname _) = isNothing rname
 
-collectJobSetRepos :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval [ ( Maybe RepoName, Tree ) ]
+collectJobSetRepos :: [ ( Maybe RepoName, RepoRef ) ] -> DeclaredJobSet -> Eval [ ( Maybe RepoName, RepoRef ) ]
 collectJobSetRepos revisionOverrides dset = do
     jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
     let someJobUsesDefaultRepo = any (any (isNothing . jcRepo) . jobCheckout) jobs
@@ -73,10 +114,10 @@ collectJobSetRepos revisionOverrides dset = do
             Just tree -> return ( rname, tree )
             Nothing -> do
                 repo <- evalRepo rname
-                tree <- getCommitTree =<< readCommit repo "HEAD"
-                return ( rname, tree )
+                commit <- readCommit repo "HEAD"
+                return ( rname, RepoRefCommit commit )
 
-collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), FilePath ) ]
+collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), RepoDepLevel ) ]
 collectOtherRepos dset decl = do
     jobs <- either (throwError . OtherEvalError . T.pack) return $ jobsetJobsEither dset
     let gatherDependencies seen (d : ds)
@@ -96,8 +137,8 @@ collectOtherRepos dset decl = do
             (if alreadyHasDefaultRepoId then filter (isJust . jcRepo) else id) $
                 concat dependencyRepos
 
-    let commonSubdir reporev = joinPath $ foldr1 commonPrefix $
-            map (maybe [] splitDirectories . jcSubtree) . filter ((reporev ==) . jcRepo) $ checkouts
+    let commonSubdir reporev = foldr1 (<>) $
+            map (RepoDepSubtree . fromMaybe "" . jcSubtree) . filter ((reporev ==) . jcRepo) $ checkouts
     let canonicalRepoOrder = Nothing : maybe [] (map (Just . repoName) . configRepos) (jobsetConfig dset)
         getCheckoutsForName rname = map (\r -> ( r, commonSubdir r )) $ nub $ filter ((rname ==) . fmap fst) $ map jcRepo checkouts
     return $ concatMap getCheckoutsForName canonicalRepoOrder
@@ -105,7 +146,7 @@ collectOtherRepos dset decl = do
 
 evalJobs
     :: [ DeclaredJob ] -> [ Either JobName Job ]
-    -> [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> [ JobName ] -> Eval [ Job ]
+    -> [ ( Maybe RepoName, RepoRef ) ] -> DeclaredJobSet -> [ JobName ] -> Eval [ Job ]
 evalJobs _ _ _ JobSet { jobsetJobsEither = Left err } _ = throwError $ OtherEvalError $ T.pack err
 
 evalJobs [] evaluated repos dset@JobSet { jobsetJobsEither = Right decl } (req : reqs)
@@ -129,35 +170,51 @@ evalJobs (current : evaluating) evaluated repos dset reqs
 evalJobs (current : evaluating) evaluated repos dset reqs = do
     EvalInput {..} <- ask
     otherRepos <- collectOtherRepos dset current
-    otherRepoTreesMb <- forM otherRepos $ \( mbrepo, commonPath ) -> do
-        Just tree <- return $ lookup (fst <$> mbrepo) repos
+    otherRepoTreesMb <- forM otherRepos $ \( mbrepo, deplevel ) -> do
+        Just repoRef <- return $ lookup (fst <$> mbrepo) repos
+        let repo = repoRefRepo repoRef
         mbSubtree <- case snd =<< mbrepo of
-            Just revisionOverride -> return . Just =<< getCommitTree =<< readCommit (treeRepo tree) revisionOverride
+            Just revisionOverride
+                | RepoDepSubtree path <- deplevel
+                -> do
+                    tree <- getCommitTree =<< readCommit repo revisionOverride
+                    return $ Just ( JobIdTree path $ treeId tree, tree )
+                | RepoDepCommit <- deplevel
+                -> do
+                    commit <- readCommit repo revisionOverride
+                    tree <- getCommitTree commit
+                    return $ Just ( JobIdCommit $ commitId commit, tree )
+                | RepoDepTag <- deplevel
+                -> do
+                    [ cid, tid ] <- return $ T.split (== '^') revisionOverride
+                    commit <- readCommit repo cid
+                    tag <- readTag repo tid
+                    tree <- getCommitTree commit
+                    return $ Just ( JobIdTag (commitId commit) (tagId tag), tree )
             Nothing
-                | treeSubdir tree == commonPath -> do
-                    return $ Just tree
-                | splitDirectories (treeSubdir tree) `isPrefixOf` splitDirectories commonPath -> do
-                    Just <$> getSubtree Nothing (makeRelative (treeSubdir tree) commonPath) tree
-                | otherwise -> do
-                    return Nothing
-        return $ fmap (\subtree -> ( mbrepo, ( commonPath, subtree ) )) mbSubtree
+                -> do
+                    repoRef' <- repoRefLimit deplevel repoRef
+                    idpart <- repoRefToIdPart repoRef'
+                    tree <- repoRefTree repoRef'
+                    return $ Just ( idpart, tree )
+        return $ fmap (\subtree -> ( mbrepo, subtree )) mbSubtree
     let otherRepoTrees = catMaybes otherRepoTreesMb
     if all isJust otherRepoTreesMb
       then do
         let otherRepoIds = flip mapMaybe otherRepoTrees $ \case
-                ( repo, ( subtree, tree )) -> do
+                ( repo, ( idpart, _ ) ) -> do
                     guard $ maybe True (isNothing . snd) repo -- use only checkouts without explicit revision in job id
-                    Just $ JobIdTree (fst <$> repo) subtree (treeId tree)
+                    Just $ JobIdRepo (fst <$> repo) idpart
         let currentJobId = JobId $ reverse $ reverse otherRepoIds ++ JobIdName (jobId current) : eiCurrentIdRev
 
         checkouts <- forM (jobCheckout current) $ \dcheckout -> do
+            mbTree <- sequence $ msum
+                [ return . snd <$> lookup (jcRepo dcheckout) otherRepoTrees
+                , repoRefTree <$> lookup (fst <$> jcRepo dcheckout) repos -- for containing repo if filtered from otherRepos
+                ]
             return dcheckout
                 { jcRepo =
-                    fromMaybe (error $ "expecting repo in either otherRepoTrees or repos: " <> show (textRepoName . fst <$> jcRepo dcheckout)) $
-                    msum
-                        [ snd <$> lookup (jcRepo dcheckout) otherRepoTrees
-                        , lookup (fst <$> jcRepo dcheckout) repos -- for containing repo if filtered from otherRepos
-                        ]
+                    fromMaybe (error $ "expecting repo in either otherRepoTrees or repos: " <> show (textRepoName . fst <$> jcRepo dcheckout)) $ mbTree
                 }
 
         uses <- forM (jobUses current) $ \( jname, aname ) -> do
@@ -192,18 +249,18 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
       else do
         evalJobs evaluating (Left (jobName current) : evaluated) repos dset reqs
 
-evalJobSet :: [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval JobSet
+evalJobSet :: [ ( Maybe RepoName, RepoRef ) ] -> DeclaredJobSet -> Eval JobSet
 evalJobSet revisionOverrides decl = evalJobSetSelected (either (const []) (map jobName) (jobsetJobsEither decl)) revisionOverrides decl
 
-evalJobSetSelected :: [ JobName ] -> [ ( Maybe RepoName, Tree ) ] -> DeclaredJobSet -> Eval JobSet
+evalJobSetSelected :: [ JobName ] -> [ ( Maybe RepoName, RepoRef ) ] -> DeclaredJobSet -> Eval JobSet
 evalJobSetSelected selected revisionOverrides decl = do
     EvalInput {..} <- ask
     repos <- collectJobSetRepos revisionOverrides decl
     alreadyHasDefaultRepoId <- checkIfAlreadyHasDefaultRepoId
-    let addedRepoIds =
-            map (\( mbname, tree ) -> JobIdTree mbname (treeSubdir tree) (treeId tree)) $
-            (if alreadyHasDefaultRepoId then filter (isJust . fst) else id) $
-            repos
+    addedRepoIds <-
+        mapM (\( mbname, ref ) -> JobIdRepo mbname <$> repoRefToIdPart ref) $
+        (if alreadyHasDefaultRepoId then filter (isJust . fst) else id) $
+        repos
 
     evaluated <- handleToEither $ evalJobs [] [] repos decl selected
     let jobs = case liftM2 (,) evaluated (jobsetJobsEither decl) of
@@ -230,7 +287,7 @@ evalRepo (Just name) = asks (lookup name . eiOtherRepos) >>= \case
     Nothing -> throwError $ OtherEvalError $ "repo ‘" <> textRepoName name <> "’ not defined"
 
 
-canonicalJobName :: [ Text ] -> Config -> Maybe Tree -> Eval JobSet
+canonicalJobName :: [ Text ] -> Config -> Maybe RepoRef -> Eval JobSet
 canonicalJobName (r : rs) config mbDefaultRepo = do
     let name = JobName r
         dset = JobSet
@@ -244,13 +301,14 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
         Just djob -> do
             otherRepos <- collectOtherRepos dset djob
             ( overrides, rs' ) <- (\f -> foldM f ( [], rs ) otherRepos) $
-                \( overrides, crs ) ( mbrepo, path ) -> if
+                \( overrides, crs ) ( mbrepo, deplevel ) -> if
                     | Just ( _, Just _ ) <- mbrepo -> do
                         -- use only checkouts without explicit revision in job id
                         return ( overrides, crs )
                     | otherwise -> do
-                        ( tree, crs' ) <- readTreeFromIdRef crs path =<< evalRepo (fst <$> mbrepo)
-                        return ( ( fst <$> mbrepo, tree ) : overrides, crs' )
+                        ( repoRef, crs' ) <- readRepoRefFromIdRef crs (repoDepPath deplevel) =<< evalRepo (fst <$> mbrepo)
+                        ref' <- repoRefLimit deplevel repoRef
+                        return ( ( fst <$> mbrepo, ref' ) : overrides, crs' )
             case rs' of
                 (r' : _) -> throwError $ OtherEvalError $ "unexpected job ref part ‘" <> r' <> "’"
                 _ -> return ()
@@ -258,21 +316,24 @@ canonicalJobName (r : rs) config mbDefaultRepo = do
         Nothing -> throwError $ OtherEvalError $ "job ‘" <> r <> "’ not found"
 canonicalJobName [] _ _ = throwError $ OtherEvalError "expected job name"
 
-readTreeFromIdRef :: [ Text ] -> FilePath -> Repo -> Eval ( Tree, [ Text ] )
-readTreeFromIdRef (r : rs) subdir repo = do
+readRepoRefFromIdRef :: [ Text ] -> FilePath -> Repo -> Eval ( RepoRef, [ Text ] )
+readRepoRefFromIdRef (r : rs) subdir repo = do
     tryReadCommit repo r >>= \case
-        Just commit -> return . (, rs) =<< getSubtree (Just commit) subdir =<< getCommitTree commit
+        Just commit
+            | subdir == "" -> return ( RepoRefCommit commit, rs )
+            | otherwise -> return . ( , rs ) . RepoRefTree =<< getSubtree (Just commit) subdir =<< getCommitTree commit
         Nothing -> tryReadTree repo subdir r >>= \case
-            Just tree -> return ( tree, rs )
+            Just tree -> return ( RepoRefTree tree, rs )
             Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
-readTreeFromIdRef [] _ _ = throwError $ OtherEvalError $ "expected commit or tree reference"
+readRepoRefFromIdRef [] _ _ = throwError $ OtherEvalError $ "expected commit or tree reference"
 
 canonicalCommitConfig :: [ Text ] -> Repo -> Eval JobSet
 canonicalCommitConfig rs repo = do
-    ( tree, rs' ) <- readTreeFromIdRef rs "" repo
+    ( rref, rs' ) <- readRepoRefFromIdRef rs "" repo
+    tree <- repoRefTree rref
     config <- either fail return =<< loadConfigForCommit tree
-    local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing "" (treeId tree) : eiCurrentIdRev ei }) $
-        canonicalJobName rs' config (Just tree)
+    local (\ei -> ei { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree "" (treeId tree)) : eiCurrentIdRev ei }) $
+        canonicalJobName rs' config (Just rref)
 
 evalJobReferenceToSet :: JobRef -> Eval JobSet
 evalJobReferenceToSet (JobRef rs) =
@@ -297,33 +358,38 @@ jobsetFromConfig sid config _ = do
     otherRepos <- forM sid $ \case
         JobIdName name -> do
             throwError $ OtherEvalError $ "expected tree id, not a job name ‘" <> textJobName name <> "’"
-        JobIdCommit name cid -> do
+        JobIdRepo name repoId -> do
             repo <- evalRepo name
-            tree <- getCommitTree =<< readCommitId repo cid
-            return ( name, tree )
-        JobIdTree name path tid -> do
-            repo <- evalRepo name
-            tree <- readTreeId repo path tid
+            tree <- case repoId of
+                JobIdTree path tid -> readTreeId repo path tid
+                JobIdCommit cid -> getCommitTree =<< readCommitId repo cid
+                JobIdTag cid _ -> getCommitTree =<< readCommitId repo cid
             return ( name, tree )
     return ( dset, eiCurrentIdRev, otherRepos )
 
 jobsetFromCommitConfig :: [ JobIdPart ] -> Repo -> Eval ( DeclaredJobSet, [ JobIdPart ], [ ( Maybe RepoName, Tree ) ] )
-jobsetFromCommitConfig (JobIdTree name path tid : sid) repo = do
+jobsetFromCommitConfig (JobIdRepo name (JobIdTree path tid) : sid) repo = do
     when (isJust name) $ do
         throwError $ OtherEvalError $ "expected default repo commit or tree id"
     when (not (null path)) $ do
         throwError $ OtherEvalError $ "expected root commit or tree id"
     tree <- readTreeId repo path tid
     config <- either fail return =<< loadConfigForCommit tree
-    local (\ei -> ei { eiCurrentIdRev = JobIdTree Nothing (treeSubdir tree) (treeId tree) : eiCurrentIdRev ei }) $ do
+    local (\ei -> ei { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev ei }) $ do
         ( dset, idRev, otherRepos ) <- jobsetFromConfig sid config (Just tree)
         return ( dset, idRev, ( Nothing, tree ) : otherRepos )
 
-jobsetFromCommitConfig (JobIdCommit name cid : sid) repo = do
+jobsetFromCommitConfig (JobIdRepo name (JobIdCommit cid) : sid) repo = do
     when (isJust name) $ do
         throwError $ OtherEvalError $ "expected default repo commit or tree id"
     tree <- getCommitTree =<< readCommitId repo cid
-    jobsetFromCommitConfig (JobIdTree name (treeSubdir tree) (treeId tree) : sid) repo
+    jobsetFromCommitConfig (JobIdRepo name (JobIdTree (treeSubdir tree) (treeId tree)) : sid) repo
+
+jobsetFromCommitConfig (JobIdRepo name (JobIdTag cid _) : sid) repo = do
+    when (isJust name) $ do
+        throwError $ OtherEvalError $ "expected default repo commit or tree id"
+    tree <- getCommitTree =<< readCommitId repo cid
+    jobsetFromCommitConfig (JobIdRepo name (JobIdTree (treeSubdir tree) (treeId tree)) : sid) repo
 
 jobsetFromCommitConfig (JobIdName name : _) _ = do
     throwError $ OtherEvalError $ "expected commit or tree id, not a job name ‘" <> textJobName name <> "’"
