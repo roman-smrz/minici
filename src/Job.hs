@@ -18,6 +18,9 @@ module Job (
 
     copyRecursive,
     copyRecursiveForce,
+
+    currentCommitExpr,
+    branchExpr,
 ) where
 
 import Control.Concurrent
@@ -49,6 +52,7 @@ import System.Posix.Signals
 import System.Process
 
 import Destination
+import Expr
 import Job.Types
 import Output
 import Repo
@@ -477,6 +481,9 @@ runJob job uses checkoutPath jdir = do
                 , aoutStorePath = target
                 }
 
+        forM_ (jobPush job) $ \JobPush {..} -> do
+            pushToBranch jpushDestination jpushSource
+
         forM_ (jobPublish job) $ \pub -> do
             Just aout <- return $ lookup (jpArtifact pub) $ map (\aout -> ( ( jobId job, aoutName aout ), aout )) artifacts ++ uses
             let ppath = case jpPath pub of
@@ -489,3 +496,19 @@ runJob job uses checkoutPath jdir = do
         return JobOutput
             { outArtifacts = artifacts
             }
+
+
+
+currentCommitExpr :: RepoName -> Expr JobSetContext Commit
+currentCommitExpr rname =
+    addDependency [ RepoDependency rname RepoDepCommit ] $
+        (pure getCommit) <*> (lookup (Just rname) . jscRepoRefs <$> GetContext)
+  where
+    getCommit = \case
+        Nothing -> error $ "currentCommitExpr: repo ‘" <> showRepoName rname <> "’ not found"
+        Just (RepoRefTree _) -> error $ "currentCommitExpr: expected commit in ‘" <> showRepoName rname <> "’, but got a tree"
+        Just (RepoRefCommit commit) -> commit
+        Just (RepoRefTag commit _) -> commit
+
+branchExpr :: RepoName -> Text -> Expr JobSetContext Branch
+branchExpr rname bname = pure ((\repo -> Branch repo bname) . fromJust) <*> (lookup (Just rname) . jscRepos <$> GetContext)

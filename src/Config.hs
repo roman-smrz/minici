@@ -27,6 +27,7 @@ import System.FilePath.Glob
 import System.Process
 
 import Destination
+import Job
 import Job.Types
 import Repo
 
@@ -101,6 +102,7 @@ parseJob name node = flip (withMap "Job") node $ \j -> do
     jobArtifacts <- parseArtifacts j
     jobUses <- maybe (return []) parseUses =<< j .:? "uses"
     jobPublish <- maybe (return []) (parsePublish jobName) =<< j .:? "publish"
+    jobPush <- maybe (return []) parsePush =<< j .:? "push"
     return Job {..}
 
 parseSingleCheckout :: Node Pos -> Parser [ JobCheckout Declared ]
@@ -163,6 +165,25 @@ parsePublish ownName = withSeq "Publish list" $ mapM $
         jpDestination <- DestinationName <$> m .: "to"
         jpPath <- fmap T.unpack <$> m .:? "path"
         return JobPublish {..}
+
+parsePush :: Node Pos -> Parser [ JobPush Declared ]
+parsePush = withSeq "Push list" $ mapM $
+    withMap "Push specification" $ \m -> do
+        source <- m .: "source"
+        jpushSource <- case T.split (== '.') source of
+            [ repo, sel ]
+                | sel == "commit"
+                -> return $ currentCommitExpr (RepoName repo)
+            _ -> mzero
+        destination <- m .: "destination"
+        jpushDestination <- case T.split (== '.') destination of
+            [ repo, sel ]
+                | [ fn, bname, fn' ] <- T.split (== '"') sel
+                , fn == "branch("
+                , fn' == ")"
+                -> return $ branchExpr (RepoName repo) bname
+            _ -> mzero
+        return JobPush {..}
 
 
 parseRepo :: Text -> Node Pos -> Parser DeclaredRepo

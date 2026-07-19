@@ -1,0 +1,7 @@
+repo source_repo:
+repo target_repo:
+
+job push_job:
+  push:
+    - source: source_repo.commit
+      destination: target_repo.branch("master")

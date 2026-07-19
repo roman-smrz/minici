@@ -20,6 +20,11 @@ import Repo
 data Declared
 data Evaluated
 
+type family ExprD d c a :: Type where
+    ExprD Declared c a = Expr c a
+    ExprD Evaluated c a = a
+
+
 data Job' d = Job
     { jobId :: JobId' d
     , jobName :: JobName
@@ -28,6 +33,7 @@ data Job' d = Job
     , jobArtifacts :: [ ( ArtifactName, Pattern ) ]
     , jobUses :: [ ArtifactSpec d ]
     , jobPublish :: [ JobPublish d ]
+    , jobPush :: [ JobPush d ]
     }
 
 type Job = Job' Evaluated
@@ -68,6 +74,11 @@ data JobPublish d = JobPublish
     { jpArtifact :: ArtifactSpec d
     , jpDestination :: JobDestination d
     , jpPath :: Maybe FilePath
+    }
+
+data JobPush d = JobPush
+    { jpushSource :: ExprD d JobSetContext Commit
+    , jpushDestination :: ExprD d JobSetContext Branch
     }
 
 

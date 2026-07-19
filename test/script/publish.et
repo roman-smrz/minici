@@ -67,3 +67,80 @@ test PublishFromSelf:
         /.\/destination\/y/
         /(.*)/ capture done
     guard (done == "DONE")
+
+
+test PushRepo:
+    node n
+    shell on n as git_init:
+        cp ${scripts.path}/push.yaml minici.yaml
+
+        mkdir workdir
+        git -C workdir -c init.defaultBranch=master init -q
+        git -C workdir -c user.name=test -c user.email=test commit -q --allow-empty -m 'initial commit'
+        git -C workdir rev-parse HEAD
+
+        git clone --bare workdir target.git
+
+        touch workdir/a
+        git -C workdir add a
+        git -C workdir -c user.name=test -c user.email=test commit -q -m a
+        git -C workdir rev-parse HEAD
+        git -C workdir rev-parse HEAD^{tree}
+
+        touch workdir/b
+        git -C workdir add b
+        git -C workdir -c user.name=test -c user.email=test commit -q -m b
+        git -C workdir rev-parse HEAD
+        git -C workdir rev-parse HEAD^{tree}
+
+        touch workdir/c
+        git -C workdir add c
+        git -C workdir -c user.name=test -c user.email=test commit -q -m c
+        git -C workdir rev-parse HEAD
+        git -C workdir rev-parse HEAD^{tree}
+
+        touch workdir/d
+        git -C workdir add d
+        git -C workdir -c user.name=test -c user.email=test commit -q -m d
+        git -C workdir rev-parse HEAD
+        git -C workdir rev-parse HEAD^{tree}
+
+        touch workdir/e
+        git -C workdir add e
+        git -C workdir -c user.name=test -c user.email=test commit -q -m e
+        git -C workdir rev-parse HEAD
+        git -C workdir rev-parse HEAD^{tree}
+
+        git -C workdir reset --hard HEAD~5
+        git -C workdir rev-parse HEAD
+
+    expect /([0-9a-f]+)/ from git_init capture c_init
+    expect /([0-9a-f]+)/ from git_init capture ca
+    expect /([0-9a-f]+)/ from git_init capture ta
+    expect /([0-9a-f]+)/ from git_init capture cb
+    expect /([0-9a-f]+)/ from git_init capture tb
+    expect /([0-9a-f]+)/ from git_init capture cc
+    expect /([0-9a-f]+)/ from git_init capture tc
+    expect /([0-9a-f]+)/ from git_init capture cd
+    expect /([0-9a-f]+)/ from git_init capture td
+    expect /([0-9a-f]+)/ from git_init capture ce
+    expect /([0-9a-f]+)/ from git_init capture te
+    expect /([0-9a-f]+)/ from git_init capture c_end
+
+    guard (c_init == c_end)
+
+    let cmd_run = [ "--repo=source_repo:workdir", "--repo=target_repo:target.git", "run" ]
+    local:
+        spawn on n as p args (cmd_run ++ [ "push_job.$cb" ]) killwith SIGINT
+        expect from p:
+            /job-enqueue push_job.$cb/
+            /job-start push_job.$cb/
+            /job-finish push_job.$cb done/
+
+        expect /(.*)/ from p capture finish
+        guard (finish == "run-finish")
+
+        shell on n as git_check:
+            git -C target.git rev-parse HEAD
+        expect /([0-9a-f]+)/ from git_check capture cur_target
+        guard (cur_target == cb)

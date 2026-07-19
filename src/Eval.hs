@@ -17,6 +17,7 @@ import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Reader
 
+import Data.Bifunctor
 import Data.Either
 import Data.List
 import Data.Maybe
@@ -114,8 +115,9 @@ collectJobSetRepos revisionOverrides dset = do
                 return ( rname, RepoRefCommit commit )
 
 getJobExprDependencies :: DeclaredJob -> [ JobSetDep ]
-getJobExprDependencies _ = concat
-    [
+getJobExprDependencies job = concat
+    [ concatMap (collectDependencies . jpushSource) $ jobPush job
+    , concatMap (collectDependencies . jpushDestination) $ jobPush job
     ]
 
 collectOtherRepos :: DeclaredJobSet -> DeclaredJob -> Eval [ ( Maybe ( RepoName, Maybe Text ), RepoDepLevel ) ]
@@ -202,6 +204,11 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
                     return $ Just ( idpart, repoRef' )
         return $ fmap (\subtree -> ( mbrepo, subtree )) mbSubtree
     let otherRepoTrees = catMaybes otherRepoTreesMb
+
+    let jscRepos = maybe id ((:) . ( Nothing, )) eiContainingRepo $ map (first Just) eiOtherRepos
+    let jscRepoRefs = map (\( repo, ( _, ref ) ) -> ( fst <$> repo, ref )) otherRepoTrees
+    let ctx = JobSetContext {..}
+
     if all isJust otherRepoTreesMb
       then do
         let otherRepoIds = flip mapMaybe otherRepoTrees $ \case
@@ -239,6 +246,14 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
                     }
                 Nothing -> throwError $ OtherEvalError $ "no url defined for destination ‘" <> textDestinationName (jpDestination dpublish) <> "’"
 
+        pushes <- forM (jobPush current) $ \JobPush {..} -> do
+            commit <- eval ctx jpushSource
+            branch <- eval ctx jpushDestination
+            return JobPush
+                { jpushSource = commit
+                , jpushDestination = branch
+                }
+
         let job = Job
                 { jobId = currentJobId
                 , jobName = jobName current
@@ -247,6 +262,7 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
                 , jobArtifacts = jobArtifacts current
                 , jobUses = uses
                 , jobPublish = destinations
+                , jobPush = pushes
                 }
         evalJobs evaluating (Right job : evaluated) repos dset reqs
       else do
