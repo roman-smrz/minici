@@ -1,7 +1,7 @@
 module Eval (
     EvalInput(..),
     EvalError(..), textEvalError,
-    Eval, runEval,
+    Eval, runEval, eval,
     RepoRef(..),
 
     evalJobSet,
@@ -13,6 +13,7 @@ module Eval (
 ) where
 
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.Except
 import Control.Monad.Reader
 
@@ -26,6 +27,7 @@ import System.FilePath
 
 import Config
 import Destination
+import Expr
 import Job.Types
 import Repo
 
@@ -50,6 +52,21 @@ type Eval a = ReaderT EvalInput (ExceptT EvalError IO) a
 runEval :: Eval a -> EvalInput -> IO (Either EvalError a)
 runEval action einput = runExceptT $ flip runReaderT einput action
 
+
+eval :: forall ctx a. ctx -> Expr ctx a -> Eval a
+eval ctx = \case
+    Pure x -> return x
+    App f x -> eval' f <*> eval' x
+    GetContext -> return ctx
+    AddDependency _ x -> eval' x
+    ExprIO act x -> do
+        x' <- eval' x
+        liftIO (handleIOError (\e -> return $ Left e) (Right <$> act x')) >>= \case
+            Left e -> throwError $ OtherEvalError $ "IO error: " <> T.pack (show e)
+            Right y -> return y
+  where
+    eval' :: forall b. Expr ctx b -> Eval b
+    eval' = eval ctx
 
 
 repoRefLimit :: RepoDepLevel -> RepoRef -> Eval RepoRef

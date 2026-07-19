@@ -17,7 +17,7 @@ data Expr c a where
     App :: Expr c (a -> b) -> Expr c a -> Expr c b
     GetContext :: Expr c c
     AddDependency :: ExprContext c => ExprDependency c -> Expr c a -> Expr c a
-    ExprIO :: IO a -> Expr c a
+    ExprIO :: (a -> IO b) -> Expr c a -> Expr c b
 
 instance Functor (Expr c) where
     fmap f x = Pure f <*> x
@@ -47,5 +47,5 @@ collectDependencies = \case
     ExprIO {} -> mempty
 
 
-exprIO :: IO a -> Expr c a
+exprIO :: (a -> IO b) -> Expr c a -> Expr c b
 exprIO = ExprIO
