@@ -1,5 +1,7 @@
 module Job.Types where
 
+import Control.Monad.IO.Class
+
 import Data.Containers.ListUtils
 import Data.Kind
 import Data.Text (Text)
@@ -11,6 +13,7 @@ import System.Process
 
 import {-# SOURCE #-} Config
 import Destination
+import Expr
 import Repo
 
 
@@ -172,3 +175,36 @@ repoDepPath = \case
     RepoDepSubtree path -> path
     RepoDepCommit -> ""
     RepoDepTag -> ""
+
+
+data RepoRef
+    = RepoRefTree Tree
+    | RepoRefCommit Commit
+    | RepoRefTag Commit (Tag Commit)
+
+repoRefRepo :: RepoRef -> Repo
+repoRefRepo = \case
+    RepoRefTree tree -> treeRepo tree
+    RepoRefCommit commit -> commitRepo commit
+    RepoRefTag commit _ -> commitRepo commit
+
+repoRefTree :: (MonadIO m, MonadFail m) => RepoRef -> m Tree
+repoRefTree = \case
+    RepoRefTree tree -> return tree
+    RepoRefCommit commit -> getCommitTree commit
+    RepoRefTag commit _ -> getCommitTree commit
+
+repoRefToIdPart :: MonadIO m => RepoRef -> m JobIdRepoPart
+repoRefToIdPart = \case
+    RepoRefTree tree -> return $ JobIdTree (treeSubdir tree) (treeId tree)
+    RepoRefCommit commit -> return $ JobIdCommit (commitId commit)
+    RepoRefTag commit tag -> return $ JobIdTag (commitId commit) (tagId tag)
+
+
+data JobSetContext = JobSetContext
+    { jscRepos :: [ ( Maybe RepoName, Repo ) ]
+    , jscRepoRefs :: [ ( Maybe RepoName, RepoRef ) ]
+    }
+
+instance ExprContext JobSetContext where
+    type ExprDependency JobSetContext = [ JobSetDep ]

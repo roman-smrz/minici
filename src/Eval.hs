@@ -51,28 +51,6 @@ runEval :: Eval a -> EvalInput -> IO (Either EvalError a)
 runEval action einput = runExceptT $ flip runReaderT einput action
 
 
-data RepoRef
-    = RepoRefTree Tree
-    | RepoRefCommit Commit
-    | RepoRefTag Commit (Tag Commit)
-
-repoRefRepo :: RepoRef -> Repo
-repoRefRepo = \case
-    RepoRefTree tree -> treeRepo tree
-    RepoRefCommit commit -> commitRepo commit
-    RepoRefTag commit _ -> commitRepo commit
-
-repoRefTree :: (MonadIO m, MonadFail m) => RepoRef -> m Tree
-repoRefTree = \case
-    RepoRefTree tree -> return tree
-    RepoRefCommit commit -> getCommitTree commit
-    RepoRefTag commit _ -> getCommitTree commit
-
-repoRefToIdPart :: MonadIO m => RepoRef -> m JobIdRepoPart
-repoRefToIdPart = \case
-    RepoRefTree tree -> return $ JobIdTree (treeSubdir tree) (treeId tree)
-    RepoRefCommit commit -> return $ JobIdCommit (commitId commit)
-    RepoRefTag commit tag -> return $ JobIdTag (commitId commit) (tagId tag)
 
 repoRefLimit :: RepoDepLevel -> RepoRef -> Eval RepoRef
 repoRefLimit (RepoDepSubtree path) rref = do
@@ -189,25 +167,22 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
                 | RepoDepSubtree path <- deplevel
                 -> do
                     tree <- getCommitTree =<< readCommit repo revisionOverride
-                    return $ Just ( JobIdTree path $ treeId tree, tree )
+                    return $ Just ( JobIdTree path $ treeId tree, RepoRefTree tree )
                 | RepoDepCommit <- deplevel
                 -> do
                     commit <- readCommit repo revisionOverride
-                    tree <- getCommitTree commit
-                    return $ Just ( JobIdCommit $ commitId commit, tree )
+                    return $ Just ( JobIdCommit $ commitId commit, RepoRefCommit commit )
                 | RepoDepTag <- deplevel
                 -> do
                     [ cid, tid ] <- return $ T.split (== '^') revisionOverride
                     commit <- readCommit repo cid
                     tag <- readTag repo tid
-                    tree <- getCommitTree commit
-                    return $ Just ( JobIdTag (commitId commit) (tagId tag), tree )
+                    return $ Just ( JobIdTag (commitId commit) (tagId tag), RepoRefTag commit tag )
             Nothing
                 -> do
                     repoRef' <- repoRefLimit deplevel repoRef
                     idpart <- repoRefToIdPart repoRef'
-                    tree <- repoRefTree repoRef'
-                    return $ Just ( idpart, tree )
+                    return $ Just ( idpart, repoRef' )
         return $ fmap (\subtree -> ( mbrepo, subtree )) mbSubtree
     let otherRepoTrees = catMaybes otherRepoTreesMb
     if all isJust otherRepoTreesMb
@@ -220,7 +195,7 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
 
         checkouts <- forM (jobCheckout current) $ \dcheckout -> do
             mbTree <- sequence $ msum
-                [ return . snd <$> lookup (jcRepo dcheckout) otherRepoTrees
+                [ repoRefTree . snd <$> lookup (jcRepo dcheckout) otherRepoTrees
                 , repoRefTree <$> lookup (fst <$> jcRepo dcheckout) repos -- for containing repo if filtered from otherRepos
                 ]
             return dcheckout
