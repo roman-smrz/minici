@@ -8,6 +8,7 @@ module Repo (
     TreeId, textTreeId, showTreeId,
     Tag(..),
     TagId, textTagId, showTagId,
+    Branch(..),
 
     openRepo,
     readCommit, readCommitId, tryReadCommit,
@@ -27,6 +28,7 @@ module Repo (
     checkoutAt,
     createWipCommit,
     readCommittedFile,
+    pushToBranch,
 
     watchBranch,
     watchTags,
@@ -113,6 +115,11 @@ data Tag a = Tag
     , tagId :: TagId
     , tagObject :: a
     , tagMessage :: Text
+    }
+
+data Branch = Branch
+    { branchRepo :: Repo
+    , branchName :: Text
     }
 
 instance Eq Repo where
@@ -427,6 +434,23 @@ readCommittedFile Tree {..} path = do
                     _ ->
                         return (Just content)
             | otherwise -> error "createProcess must return stdout handle"
+
+pushToBranch :: (MonadIO m, MonadFail m) => Branch -> Commit -> m ()
+pushToBranch Branch {..} Commit {..} = do
+    liftIO $
+        withMVar (gitLock branchRepo) $ \_ ->
+        withMVar (gitLock commitRepo) $ \_ -> do
+            let cmd = (proc "git" [ "--git-dir=" <> gitDir commitRepo, "push", "--quiet", "--porcelain", gitDir branchRepo, showCommitId commitId_ <> ":refs/heads/" <> T.unpack branchName ])
+                    { std_in = NoStream
+                    , std_out = CreatePipe
+                    , std_err = NoStream
+                    }
+            createProcess cmd >>= \( _, mbstdout, _, ph ) -> if
+                | Just _ <- mbstdout -> do
+                    waitForProcess ph >>= \case
+                        ExitSuccess -> return ()
+                        code -> fail $ "git push exited with error: " <> show code
+                | otherwise -> error "createProcess must return stdout handle"
 
 
 repoInotify :: Repo -> IO ( INotify, TChan (Tag Commit) )
