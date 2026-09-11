@@ -131,11 +131,11 @@ test PushRepo:
 
     let cmd_run = [ "--repo=source_repo:workdir", "--repo=target_repo:target.git", "run" ]
     local:
-        spawn on n as p args (cmd_run ++ [ "push_job.$cb" ]) killwith SIGINT
+        spawn on n as p args (cmd_run ++ [ "push_job:$cb" ]) killwith SIGINT
         expect from p:
-            /job-enqueue push_job.$cb/
-            /job-start push_job.$cb/
-            /job-finish push_job.$cb done/
+            /job-enqueue push_job:$cb/
+            /job-start push_job:$cb/
+            /job-finish push_job:$cb done/
 
         expect /(.*)/ from p capture finish
         guard (finish == "run-finish")

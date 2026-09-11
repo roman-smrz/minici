@@ -135,21 +135,37 @@ textJobIdPart = \case
     JobIdRepo _ (JobIdTag cid tid) -> textCommitId cid <> "^" <> textTagId tid
 
 textJobId :: JobId -> Text
-textJobId (JobId ids) = T.intercalate "." $ map textJobIdPart ids
+textJobId (JobId ids) = T.intercalate ":" $ map textJobIdPart ids
 
 parseJobRef :: Text -> JobRef
-parseJobRef = JobRef . go 0 ""
+parseJobRef = JobRef . parseJobRefParts
+
+parseJobRefParts :: Text -> [ Text ]
+parseJobRefParts = go [ ':', '.' ] 0 False ""
   where
-    go :: Int -> Text -> Text -> [ Text ]
-    go plevel cur s = do
+    go :: [ Char ] -> Int -> Bool -> Text -> Text -> [ Text ]
+    go seps plevel pdrop cur s = do
         let bchars | plevel > 0 = [ '(', ')' ]
-                   | otherwise  = [ '.', '(', ')' ]
+                   | otherwise  = seps ++ [ '(', ')' ]
         let ( part, rest ) = T.break (`elem` bchars) s
         case T.uncons rest of
-            Just ( '.', rest' ) -> (cur <> part) : go plevel "" rest'
-            Just ( '(', rest' ) -> go (plevel + 1) (cur <> part) rest'
-            Just ( ')', rest' ) -> go (plevel - 1) (cur <> part) rest'
-            _                   -> [ cur <> part ]
+            Just ( '.', rest' )
+                | Just ( '.', rest'' ) <- T.uncons rest'
+                -> go seps plevel pdrop (cur <> part <> "..") rest''
+            Just ( sep, rest' )
+                | sep `elem` seps
+                -> (cur <> part) : go [ sep ] plevel pdrop "" rest'
+            Just ( '(', rest' )
+                | T.null cur && T.null part
+                -> go seps (plevel + 1) True (cur <> part) rest'
+                | otherwise
+                -> go seps (plevel + 1) pdrop (cur <> part <> "(") rest'
+            Just ( ')', rest' )
+                | T.null rest' && pdrop
+                -> go seps (plevel - 1) False (cur <> part) rest'
+                | otherwise
+                -> go seps (plevel - 1) pdrop (cur <> part <> ")") rest'
+            _   -> [ cur <> part ]
 
 lastJobNameId :: JobId -> Maybe JobName
 lastJobNameId (JobId ids) = go Nothing ids

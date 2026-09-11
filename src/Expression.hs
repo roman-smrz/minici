@@ -156,7 +156,7 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
               return $ RangeExpression rev1 (ModifiedRevision "^" rev1)
           ]
 
-        (char ':' >> eof) <|> eof
+        eof
         return expr
 
     parseRevision :: ExprParser DeclaredRevisionExpression

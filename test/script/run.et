@@ -17,7 +17,7 @@ test RunWithoutRepo:
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
     local:
-        spawn on n as p args [ "--storage=.minici", "${scripts.path}/norepo-basic.yaml", "extract", "block_recipe.out", "." ]
+        spawn on n as p args [ "--storage=.minici", "${scripts.path}/norepo-basic.yaml", "extract", "block_recipe:out", "." ]
     local:
         shell on n as s:
             cat var
@@ -48,13 +48,13 @@ test RunWithRepo:
     local:
         spawn on n as p args [ "run", "--range=$c0..$c2" ]
         expect_result from p:
-            of "$t1.success" result "done"
-            of "$t1.failure" result "failed"
+            of "$t1:success" result "done"
+            of "$t1:failure" result "failed"
 
-            of "$t2.success" result "done"
-            of "$t2.failure" result "failed"
-            of "$t2.third" result "done"
-            of "$t2.fourth" result "done"
+            of "$t2:success" result "done"
+            of "$t2:failure" result "failed"
+            of "$t2:third" result "done"
+            of "$t2:fourth" result "done"
 
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
@@ -62,19 +62,19 @@ test RunWithRepo:
     local:
         spawn on n as p args [ "./minici.yaml", "run", "--range=$c0..$c2" ]
         expect_previous_result from p:
-            of "$t1.success" result "done"
+            of "$t1:success" result "done"
         expect_result from p:
-            of "$t1.failure" result "failed"
-            of "$t1.third" result "done"
-            of "$t1.fourth" result "done"
+            of "$t1:failure" result "failed"
+            of "$t1:third" result "done"
+            of "$t1:fourth" result "done"
 
         expect_previous_result from p:
-            of "$t2.success" result "done"
+            of "$t2:success" result "done"
         expect_result from p:
-            of "$t2.failure" result "failed"
+            of "$t2:failure" result "failed"
         expect_previous_result from p:
-            of "$t2.third" result "done"
-            of "$t2.fourth" result "done"
+            of "$t2:third" result "done"
+            of "$t2:fourth" result "done"
 
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
@@ -118,7 +118,7 @@ test RunExternalRepo:
     # Explicit jobfile outside of any git repo
     local:
         spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "--storage=.minici", "${scripts.path}/external.yaml", "run", "single", "multiple", "combine" ]
-        for job in [ "single.$first_root", "multiple.$first_subtree.$second_subtree", "combine.$first_root.$second_subtree" ]:
+        for job in [ "single:$first_root", "multiple:$first_subtree:$second_subtree", "combine:$first_root:$second_subtree" ]:
             expect_success from p of job
 
         expect /(.*)/ from p capture done
@@ -127,15 +127,15 @@ test RunExternalRepo:
     # Explicit jobfile within a git repo
     local:
         spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "--storage=.minici", "${scripts.path}/external.yaml", "run", "single" ]
-        expect_success from p of "single.$first_root"
+        expect_success from p of "single:$first_root"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     # Implicit jobfile within a git repo
     local:
         spawn on n as p args [ "--repo=first:./first", "--repo=second:./second", "./main", "run", "HEAD^..HEAD" ]
-        for job in [ "single.$first_root", "multiple.$first_subtree.$second_subtree", "combine.$first_root.$second_subtree" ]:
-            expect_success from p of "$main_root.$job"
+        for job in [ "single:$first_root", "multiple:$first_subtree:$second_subtree", "combine:$first_root:$second_subtree" ]:
+            expect_success from p of "$main_root:$job"
 
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
@@ -182,12 +182,12 @@ test RunExplicitJob:
     expect /([0-9a-f]+)/ from git_init capture t4
 
     local:
-        spawn on n as p args [ "./main", "run", "$c1.build" ]
-        expect_success from p of "$t1.build"
+        spawn on n as p args [ "./main", "run", "$c1:build" ]
+        expect_success from p of "$t1:build"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
     local:
-        spawn on n as p args [ "./main", "extract", "$c1.build.out", "list" ]
+        spawn on n as p args [ "./main", "extract", "$c1:build:out", "list" ]
     local:
         shell on n as s:
             cat list
@@ -195,12 +195,12 @@ test RunExplicitJob:
         expect /a/ from s
 
     local:
-        spawn on n as p args [ "./main", "run", "$t2.build" ]
-        expect_success from p of "$t2.build"
+        spawn on n as p args [ "./main", "run", "$t2:build" ]
+        expect_success from p of "$t2:build"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
     local:
-        spawn on n as p args [ "./main", "extract", "$t2.build.out", "list" ]
+        spawn on n as p args [ "./main", "extract", "$t2:build:out", "list" ]
     local:
         shell on n as s:
             cat list
@@ -208,12 +208,12 @@ test RunExplicitJob:
         expect /a b/ from s
 
     local:
-        spawn on n as p args [ "./main", "run", "HEAD^.build" ]
-        expect_success from p of "$t3.build"
+        spawn on n as p args [ "./main", "run", "HEAD^:build" ]
+        expect_success from p of "$t3:build"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
     local:
-        spawn on n as p args [ "./main", "extract", "HEAD^.build.out", "list" ]
+        spawn on n as p args [ "./main", "extract", "HEAD^:build:out", "list" ]
     local:
         shell on n as s:
             cat list
@@ -221,12 +221,12 @@ test RunExplicitJob:
         expect /c/ from s
 
     local:
-        spawn on n as p args [ "./main", "run", "HEAD.build" ]
-        expect_success from p of "$t4.build"
+        spawn on n as p args [ "./main", "run", "HEAD:build" ]
+        expect_success from p of "$t4:build"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
     local:
-        spawn on n as p args [ "./main", "extract", "HEAD.build.out", "list" ]
+        spawn on n as p args [ "./main", "extract", "HEAD:build:out", "list" ]
     local:
         shell on n as s:
             cat list
@@ -307,24 +307,24 @@ test RunExplicitDependentJob:
     expect /([0-9a-f]+)/ from git_init capture o4
 
     local:
-        spawn on n as p args [ "--repo=other:./other", "./main", "run", "$c1.first", "$t2.first", "$t3.fourth.$o3", "$c1.fifth.$o1", "$c1.fourth.$o1", "$c1.third", "$c1.second", "$t4.fifth.$o4" ]
-        expect_success from p of "$t1.first"
-        expect_success from p of "$t1.second"
-        expect_success from p of "$t1.third"
-        expect_success from p of "$t1.fourth.$o1"
-        expect_success from p of "$t1.fifth.$o1"
+        spawn on n as p args [ "--repo=other:./other", "./main", "run", "$c1:first", "$t2:first", "$t3:fourth:$o3", "$c1:fifth:$o1", "$c1:fourth:$o1", "$c1:third", "$c1:second", "$t4:fifth:$o4" ]
+        expect_success from p of "$t1:first"
+        expect_success from p of "$t1:second"
+        expect_success from p of "$t1:third"
+        expect_success from p of "$t1:fourth:$o1"
+        expect_success from p of "$t1:fifth:$o1"
 
-        expect_success from p of "$t2.first"
+        expect_success from p of "$t2:first"
 
-        expect_success from p of "$t3.first"
-        expect_success from p of "$t3.second"
-        expect_success from p of "$t3.fourth.$o3"
+        expect_success from p of "$t3:first"
+        expect_success from p of "$t3:second"
+        expect_success from p of "$t3:fourth:$o3"
 
-        expect_success from p of "$t4.first"
-        expect_success from p of "$t4.second"
-        expect_success from p of "$t4.third"
-        expect_success from p of "$t4.fourth.$o4"
-        expect_success from p of "$t4.fifth.$o4"
+        expect_success from p of "$t4:first"
+        expect_success from p of "$t4:second"
+        expect_success from p of "$t4:third"
+        expect_success from p of "$t4:fourth:$o4"
+        expect_success from p of "$t4:fifth:$o4"
 
         flush from p matching /note .*/
         flush from p matching /job-duplicate .*/
@@ -346,96 +346,96 @@ test RunRerun:
     expect /([0-9a-f]+)/ from git_init capture t1
 
     local:
-        spawn on n as p args [ "./main", "run", "$t1.third" ]
-        expect_success from p of "$t1.first"
-        expect_success from p of "$t1.second"
-        expect_result from p of "$t1.first_fail" result "failed"
-        expect_skip from p of "$t1.second_skip"
-        expect_skip from p of "$t1.third"
+        spawn on n as p args [ "./main", "run", "$t1:third" ]
+        expect_success from p of "$t1:first"
+        expect_success from p of "$t1:second"
+        expect_result from p of "$t1:first_fail" result "failed"
+        expect_skip from p of "$t1:second_skip"
+        expect_skip from p of "$t1:third"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-explicit", "$t1.second" ]
-        expect_previous_success from p of "$t1.first"
-        expect_success from p of "$t1.second"
+        spawn on n as p args [ "./main", "run", "--rerun-explicit", "$t1:second" ]
+        expect_previous_success from p of "$t1:first"
+        expect_success from p of "$t1:second"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-failed", "$t1.second" ]
-        expect_previous_success from p of "$t1.first"
-        expect_previous_success from p of "$t1.second"
+        spawn on n as p args [ "./main", "run", "--rerun-failed", "$t1:second" ]
+        expect_previous_success from p of "$t1:first"
+        expect_previous_success from p of "$t1:second"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-all", "$t1.second" ]
-        expect_success from p of "$t1.first"
-        expect_success from p of "$t1.second"
+        spawn on n as p args [ "./main", "run", "--rerun-all", "$t1:second" ]
+        expect_success from p of "$t1:first"
+        expect_success from p of "$t1:second"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-none", "$t1.second" ]
-        expect_previous_success from p of "$t1.first"
-        expect_previous_success from p of "$t1.second"
+        spawn on n as p args [ "./main", "run", "--rerun-none", "$t1:second" ]
+        expect_previous_success from p of "$t1:first"
+        expect_previous_success from p of "$t1:second"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-explicit", "$t1.third" ]
-        expect_previous_success from p of "$t1.first"
-        expect_previous_success from p of "$t1.second"
-        expect_result from p of "$t1.first_fail" result "failed"
-        expect_skip from p of "$t1.second_skip"
-        expect_skip from p of "$t1.third"
+        spawn on n as p args [ "./main", "run", "--rerun-explicit", "$t1:third" ]
+        expect_previous_success from p of "$t1:first"
+        expect_previous_success from p of "$t1:second"
+        expect_result from p of "$t1:first_fail" result "failed"
+        expect_skip from p of "$t1:second_skip"
+        expect_skip from p of "$t1:third"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-failed", "$t1.third" ]
-        expect_previous_success from p of "$t1.first"
-        expect_previous_success from p of "$t1.second"
-        expect_result from p of "$t1.first_fail" result "failed"
-        expect_skip from p of "$t1.second_skip"
-        expect_skip from p of "$t1.third"
+        spawn on n as p args [ "./main", "run", "--rerun-failed", "$t1:third" ]
+        expect_previous_success from p of "$t1:first"
+        expect_previous_success from p of "$t1:second"
+        expect_result from p of "$t1:first_fail" result "failed"
+        expect_skip from p of "$t1:second_skip"
+        expect_skip from p of "$t1:third"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-all", "$t1.third" ]
-        expect_success from p of "$t1.first"
-        expect_success from p of "$t1.second"
-        expect_result from p of "$t1.first_fail" result "failed"
-        expect_skip from p of "$t1.second_skip"
-        expect_skip from p of "$t1.third"
+        spawn on n as p args [ "./main", "run", "--rerun-all", "$t1:third" ]
+        expect_success from p of "$t1:first"
+        expect_success from p of "$t1:second"
+        expect_result from p of "$t1:first_fail" result "failed"
+        expect_skip from p of "$t1:second_skip"
+        expect_skip from p of "$t1:third"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "./main", "run", "--rerun-none", "$t1.third" ]
-        expect_previous_success from p of "$t1.first"
-        expect_previous_success from p of "$t1.second"
-        expect_previous_result from p of "$t1.first_fail" result "failed"
-        expect_skip from p of "$t1.second_skip"
-        expect_skip from p of "$t1.third"
+        spawn on n as p args [ "./main", "run", "--rerun-none", "$t1:third" ]
+        expect_previous_success from p of "$t1:first"
+        expect_previous_success from p of "$t1:second"
+        expect_previous_result from p of "$t1:first_fail" result "failed"
+        expect_skip from p of "$t1:second_skip"
+        expect_skip from p of "$t1:third"
 
         flush from p matching /note .*/
         expect /(.*)/ from p capture done
@@ -527,81 +527,81 @@ test RunWithManyRepos:
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "first" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.first.$r1c.$r2t.$r3c.$r4t" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc:first:$r1c:$r2t:$r3c:$r4t" ]
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "first_manual_revision" ]
-        expect_success from p of "$mt.first_manual_revision.$r1t.$r2t.$r4t"
+        expect_success from p of "$mt:first_manual_revision:$r1t:$r2t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.first_manual_revision.$r1c.$r2t.$r4t" ]
-        expect_success from p of "$mt.first_manual_revision.$r1t.$r2t.$r4t"
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc:first_manual_revision:$r1c:$r2t:$r4t" ]
+        expect_success from p of "$mt:first_manual_revision:$r1t:$r2t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "dependent" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:dependent:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.dependent.$r1c.$r2t.$r3c.$r4t" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc:dependent:$r1c:$r2t:$r3c:$r4t" ]
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:dependent:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "dependent_publish" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.dependent_publish.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:dependent_publish:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "transitive" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.transitive.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:dependent:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:transitive:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc.transitive.$r1c.$r2t.$r3c.$r4t" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.transitive.$r1t.$r2t.$r3t.$r4t"
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "$mc:transitive:$r1c:$r2t:$r3c:$r4t" ]
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:dependent:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:transitive:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "combined" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.second.$r2t.$r3t.$r5t"
-        expect_success from p of "$mt.combined.$r1t.$r2t.$r3t.$r4t.$r5t"
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:second:$r2t:$r3t:$r5t"
+        expect_success from p of "$mt:combined:$r1t:$r2t:$r3t:$r4t:$r5t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main", "run", "--rerun-all", "combined_transitive" ]
-        expect_success from p of "$mt.first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.second.$r2t.$r3t.$r5t"
-        expect_success from p of "$mt.dependent.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.transitive.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "$mt.combined.$r1t.$r2t.$r3t.$r4t.$r5t"
-        expect_success from p of "$mt.combined_transitive.$r1t.$r2t.$r3t.$r4t.$r5t"
+        expect_success from p of "$mt:first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:second:$r2t:$r3t:$r5t"
+        expect_success from p of "$mt:dependent:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:transitive:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "$mt:combined:$r1t:$r2t:$r3t:$r4t:$r5t"
+        expect_success from p of "$mt:combined_transitive:$r1t:$r2t:$r3t:$r4t:$r5t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
@@ -610,24 +610,24 @@ test RunWithManyRepos:
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main/minici.yaml", "run", "--rerun-all", "first" ]
-        expect_success from p of "first.$r1t.$r2t.$r3t.$r4t"
+        expect_success from p of "first:$r1t:$r2t:$r3t:$r4t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main/minici.yaml", "run", "--rerun-all", "second" ]
-        expect_success from p of "second.$mt.$r2t.$r3t.$r5t"
+        expect_success from p of "second:$mt:$r2t:$r3t:$r5t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
     local:
         spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r3:./dir_r3", "--repo=r4:./dir_r4", "--repo=r2:./dir_r2", "--repo=r5:./dir_r5", "--destination=d1:./dest1", "./main/minici.yaml", "run", "--rerun-all", "combined_transitive" ]
-        expect_success from p of "first.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "second.$mt.$r2t.$r3t.$r5t"
-        expect_success from p of "dependent.$mt.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "transitive.$mt.$r1t.$r2t.$r3t.$r4t"
-        expect_success from p of "combined.$mt.$r1t.$r2t.$r3t.$r4t.$r5t"
-        expect_success from p of "combined_transitive.$mt.$r1t.$r2t.$r3t.$r4t.$r5t"
+        expect_success from p of "first:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "second:$mt:$r2t:$r3t:$r5t"
+        expect_success from p of "dependent:$mt:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "transitive:$mt:$r1t:$r2t:$r3t:$r4t"
+        expect_success from p of "combined:$mt:$r1t:$r2t:$r3t:$r4t:$r5t"
+        expect_success from p of "combined_transitive:$mt:$r1t:$r2t:$r3t:$r4t:$r5t"
         expect /(.*)/ from p capture done
         guard (done == "run-finish")
 
@@ -696,9 +696,9 @@ test WatchBranchAndCancel:
             git reset --hard $ca
 
         expect from p:
-            /job-start $ta.first/
-            /job-start $ta.third/
-            /job-finish $ta.third done/
+            /job-start $ta:first/
+            /job-start $ta:third/
+            /job-finish $ta:third done/
 
         shell on n:
             git reset --hard $cc
@@ -710,26 +710,26 @@ test WatchBranchAndCancel:
             git reset --hard $ce
 
         expect from p:
-            /job-finish $tb.first cancelled/
-            /job-finish $tb.second cancelled/
-            /job-finish $tc.first cancelled/
-            /job-finish $tc.second cancelled/
-            /job-finish $tc.third cancelled/
+            /job-finish $tb:first cancelled/
+            /job-finish $tb:second cancelled/
+            /job-finish $tc:first cancelled/
+            /job-finish $tc:second cancelled/
+            /job-finish $tc:third cancelled/
 
         for commit in [ ta ]:
-            spawn on n as log args [ "log", "$commit.first" ]
+            spawn on n as log args [ "log", "$commit:first" ]
             expect from log /msg (.*)/ capture path
             shell on n:
                 echo -n > $path
-            expect from p /job-finish $commit.first done/
+            expect from p /job-finish $commit:first done/
 
         for commit in [ td, te ]:
-            expect from p /job-start $commit.first/
-            spawn on n as log args [ "log", "$commit.first" ]
+            expect from p /job-start $commit:first/
+            spawn on n as log args [ "log", "$commit:first" ]
             expect from log /msg (.*)/ capture path
             shell on n:
                 echo -n > $path
-            expect from p /job-finish $commit.first done/
+            expect from p /job-finish $commit:first done/
 
 
 test RestartCancelledJobs:
@@ -790,76 +790,76 @@ test RestartCancelledJobs:
             git reset --hard $ca
 
         expect from p:
-            /job-enqueue $ta.first/
-            /job-enqueue $ta.second/
-            /job-enqueue $ta.third/
-            /job-start $ta.first/
-            /job-start $ta.third/
-            /job-finish $ta.third done/
+            /job-enqueue $ta:first/
+            /job-enqueue $ta:second/
+            /job-enqueue $ta:third/
+            /job-start $ta:first/
+            /job-start $ta:third/
+            /job-finish $ta:third done/
 
         shell on n:
             git reset --hard $cc
 
         expect from p:
-            /job-enqueue $tb.first/
-            /job-enqueue $tb.second/
-            /job-enqueue $tb.third/
-            /job-enqueue $tc.first/
-            /job-enqueue $tc.second/
-            /job-enqueue $tc.third/
-            /job-start $tb.first/
-            /job-start $tb.third/
-            /job-start $tc.first/
-            /job-start $tc.third/
-            /job-finish $tb.third done/
-            /job-finish $tc.third done/
+            /job-enqueue $tb:first/
+            /job-enqueue $tb:second/
+            /job-enqueue $tb:third/
+            /job-enqueue $tc:first/
+            /job-enqueue $tc:second/
+            /job-enqueue $tc:third/
+            /job-start $tb:first/
+            /job-start $tb:third/
+            /job-start $tc:first/
+            /job-start $tc:third/
+            /job-finish $tb:third done/
+            /job-finish $tc:third done/
 
         shell on n:
             git reset --hard $ca
 
         expect from p:
-            /job-finish $tb.first cancelled/
-            /job-finish $tb.second cancelled/
-            /job-finish $tc.first cancelled/
-            /job-finish $tc.second cancelled/
+            /job-finish $tb:first cancelled/
+            /job-finish $tb:second cancelled/
+            /job-finish $tc:first cancelled/
+            /job-finish $tc:second cancelled/
 
         shell on n:
             git reset --hard $cb
 
         expect from p:
-            /job-enqueue $tb.first/
-            /job-enqueue $tb.second/
-            /job-duplicate $tb.third done/
-            /job-start $tb.first/
+            /job-enqueue $tb:first/
+            /job-enqueue $tb:second/
+            /job-duplicate $tb:third done/
+            /job-start $tb:first/
 
         shell on n:
             git reset --hard $ca
 
         expect from p:
-            /job-finish $tb.first cancelled/
-            /job-finish $tb.second cancelled/
+            /job-finish $tb:first cancelled/
+            /job-finish $tb:second cancelled/
 
         shell on n:
             git reset --hard $cd
 
         expect from p:
-            /job-enqueue $tb.first/
-            /job-enqueue $tb.second/
-            /job-duplicate $tb.third done/
-            /job-start $tb.first/
+            /job-enqueue $tb:first/
+            /job-enqueue $tb:second/
+            /job-duplicate $tb:third done/
+            /job-start $tb:first/
 
-            /job-enqueue $tc.first/
-            /job-enqueue $tc.second/
-            /job-duplicate $tc.third done/
-            /job-start $tc.first/
+            /job-enqueue $tc:first/
+            /job-enqueue $tc:second/
+            /job-duplicate $tc:third done/
+            /job-start $tc:first/
 
-            /job-enqueue $td.first/
-            /job-enqueue $td.second/
-            /job-enqueue $td.third/
-            /job-start $td.first/
-            /job-start $td.third/
+            /job-enqueue $td:first/
+            /job-enqueue $td:second/
+            /job-enqueue $td:third/
+            /job-start $td:first/
+            /job-start $td:third/
             /job-(.*)/ capture final_job
-        guard (final_job == "finish $td.third done")
+        guard (final_job == "finish $td:third done")
 
 
 test RangeExpressions:
@@ -923,36 +923,36 @@ test RangeExpressions:
     local:
         spawn on n as p args [ "run", "--rerun-all", "$ce:" ] killwith SIGINT
         expect from p:
-            /job-enqueue $te.single/
-            /job-start $te.single/
-            /job-finish $te.single done/
+            /job-enqueue $te:single/
+            /job-start $te:single/
+            /job-finish $te:single done/
         expect /(.*)/ from p capture finish
         guard (finish == "run-finish")
 
     local:
         spawn on n as p args [ "run", "--rerun-all", "$cb..$cd" ] killwith SIGINT
         expect from p:
-            /job-enqueue $tc.single/
-            /job-start $tc.single/
-            /job-finish $tc.single done/
-            /job-enqueue $td.single/
-            /job-start $td.single/
-            /job-finish $td.single done/
+            /job-enqueue $tc:single/
+            /job-start $tc:single/
+            /job-finish $tc:single done/
+            /job-enqueue $td:single/
+            /job-start $td:single/
+            /job-finish $td:single done/
         expect /(.*)/ from p capture finish
         guard (finish == "run-finish")
 
     local:
         spawn on n as p args [ "run", "--rerun-all", "master..$cc" ] killwith SIGINT
         expect from p:
-            /job-enqueue $ta.single/
-            /job-start $ta.single/
-            /job-finish $ta.single done/
-            /job-enqueue $tb.single/
-            /job-start $tb.single/
-            /job-finish $tb.single done/
-            /job-enqueue $tc.single/
-            /job-start $tc.single/
-            /job-finish $tc.single done/
+            /job-enqueue $ta:single/
+            /job-start $ta:single/
+            /job-finish $ta:single done/
+            /job-enqueue $tb:single/
+            /job-start $tb:single/
+            /job-finish $tb:single done/
+            /job-enqueue $tc:single/
+            /job-start $tc:single/
+            /job-finish $tc:single done/
         expect /(.*)/ from p capture finish
         guard (finish == "run-finish")
 
@@ -963,9 +963,9 @@ test RangeExpressions:
 
         spawn on n as p args [ "run", "--rerun-all", "watch(master)" ] killwith SIGINT
         expect from p:
-            /job-enqueue $ta.single/
-            /job-start $ta.single/
-            /job-finish $ta.single done/
+            /job-enqueue $ta:single/
+            /job-start $ta:single/
+            /job-finish $ta:single done/
 
         local:
             shell on n:
@@ -973,7 +973,7 @@ test RangeExpressions:
 
         expect from p:
             /job-enqueue (.*)/ capture td_single
-        guard (td_single == "$td.single")
+        guard (td_single == "$td:single")
         expect from p:
             /job-start $td_single/
             /job-finish $td_single done/
@@ -984,7 +984,7 @@ test RangeExpressions:
 
         expect from p:
             /job-enqueue (.*)/ capture tb_single
-        guard (tb_single == "$tb.single")
+        guard (tb_single == "$tb:single")
         expect from p:
             /job-start $tb_single/
             /job-finish $tb_single done/
@@ -1000,19 +1000,19 @@ test RangeExpressions:
         shell on n:
             git reset --hard $cb
         expect from p:
-            /job-enqueue $ta.single/
-            /job-start $ta.single/
-            /job-finish $ta.single done/
-            /job-enqueue $tb.single/
-            /job-start $tb.single/
-            /job-finish $tb.single done/
+            /job-enqueue $ta:single/
+            /job-start $ta:single/
+            /job-finish $ta:single done/
+            /job-enqueue $tb:single/
+            /job-start $tb:single/
+            /job-finish $tb:single done/
 
         shell on n:
             git reset --hard $cd
         expect from p:
-            /job-enqueue $tc.single/
-            /job-start $tc.single/
-            /job-finish $tc.single done/
-            /job-enqueue $td.single/
-            /job-start $td.single/
-            /job-finish $td.single done/
+            /job-enqueue $tc:single/
+            /job-start $tc:single/
+            /job-finish $tc:single done/
+            /job-enqueue $td:single/
+            /job-start $td:single/
+            /job-finish $td:single done/

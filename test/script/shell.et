@@ -33,7 +33,7 @@ test ShellPrepare:
         expect /run-finish/ from p
 
     local:
-        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "${scripts.path}/minici.yaml", "shell", "combine.$r1t.$r2t" ]
+        spawn on n as p args [ "--storage=minici", "--repo=r1:./dir_r1", "--repo=r2:./dir_r2", "${scripts.path}/minici.yaml", "shell", "combine:$r1t:$r2t" ]
         with p:
             send "ls ."
             expect /d1/

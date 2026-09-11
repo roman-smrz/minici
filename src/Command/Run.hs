@@ -10,6 +10,7 @@ import Control.Monad.IO.Class
 
 import Data.Char
 import Data.Containers.ListUtils
+import Data.Either
 import Data.List
 import Data.Maybe
 import Data.Text (Text)
@@ -314,10 +315,14 @@ cmdRun (RunCommand RunOptions {..} args) = do
         ]
 
     let ( nameOptions, jobOptions ) = partition (T.all $ \c -> isAlphaNum c || c == '_') args
-        ( refOptions, exprOptions ) = partition (\r -> "." `T.isInfixOf` r && not (".." `T.isInfixOf` r)) jobOptions
+        ( refOptions, exprOptions ) = partitionEithers $ map splitRefs jobOptions
+        splitRefs t = case parseJobRef t of
+            JobRef [ e ] -> Right e
+            JobRef [ e, "" ] -> Right e
+            ref -> Left ref
 
     argumentJobs <- argumentJobSource $ map JobName nameOptions
-    refJobs <- refJobSource $ map parseJobRef refOptions
+    refJobs <- refJobSource refOptions
 
     exprJobs <- forM exprOptions $ \trange ->
         case parseRangeExpression trange of
