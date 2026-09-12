@@ -37,7 +37,7 @@ import Repo
 
 data CommonOptions = CommonOptions
     { optJobs :: Int
-    , optRepo :: [ ( RepoName, FilePath ) ]
+    , optRepo :: [ ( RepoName, ( Bool, FilePath ) ) ]
     , optDestination :: [ ( DestinationName, Text ) ]
     }
 

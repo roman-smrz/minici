@@ -188,10 +188,11 @@ parsePush = withSeq "Push list" $ mapM $
 
 parseRepo :: Text -> Node Pos -> Parser DeclaredRepo
 parseRepo name node = choice
-    [ flip (withNull "Repo") node $ return $ DeclaredRepo (RepoName name) Nothing
+    [ flip (withNull "Repo") node $ return $ DeclaredRepo (RepoName name) Nothing False
     , flip (withMap "Repo") node $ \r -> DeclaredRepo
         <$> pure (RepoName name)
         <*> (fmap T.unpack <$> r .:? "path")
+        <*> (fromMaybe False <$> r .:? "writable")
     ]
 
 parseDestination :: Text -> Node Pos -> Parser DeclaredDestination

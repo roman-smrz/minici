@@ -62,16 +62,11 @@ options =
         (ReqArg (\num opts -> return opts { optCommon = (optCommon opts) { optJobs = read num }}) "<num>")
         ("number of jobs to run simultaneously (default " <> show (optJobs defaultCommonOptions) <> ")")
     , Option [] [ "repo" ]
-        (ReqArg (\value opts ->
-            case span (/= ':') value of
-                ( repo, ':' : path ) -> return opts
-                    { optCommon = (optCommon opts)
-                        { optRepo = ( RepoName $ T.pack repo, path ) : optRepo (optCommon opts)
-                        }
-                    }
-                _ -> throwError $ "--repo: invalid value ‘" <> value <> "’"
-        ) "<repo>:<path>")
+        (repoOption "repo" False)
         ("override or declare repo path")
+    , Option [] [ "writable-repo" ]
+        (repoOption "writable-repo" True)
+        ("override or declare repo path and open it as writable")
     , Option [] [ "destination" ]
         (ReqArg (\value opts ->
             case span (/= ':') value of
@@ -96,6 +91,18 @@ options =
         (OptArg (\value opts -> return opts { optOutput = Just $ TestOutput (fromMaybe "-" value) : fromMaybe [] (optOutput opts) }) "<path>")
         "use test-style output to <path> or standard output"
     ]
+
+  where
+    repoOption optname writable =
+        (ReqArg (\value opts ->
+            case span (/= ':') value of
+                ( repo, ':' : path ) -> return opts
+                    { optCommon = (optCommon opts)
+                        { optRepo = ( RepoName $ T.pack repo, ( writable, path ) ) : optRepo (optCommon opts)
+                        }
+                    }
+                _ -> throwError $ "--" <> optname <> ": invalid value ‘" <> value <> "’"
+        ) "<repo>:<path>")
 
 data SomeCommandType = forall c. Command c => SC (Proxy c)
 
@@ -212,12 +219,12 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
                     Right config -> return ( path, JobRootConfig config )
                     Left err -> reportFailure $ "Failed to parse job file ‘" <> path <> "’:" <> err
                 False -> doesDirectoryExist path >>= \case
-                    True -> openRepo path >>= \case
+                    True -> openRepo False path >>= \case
                         Just repo -> return ( path, JobRootRepo repo )
                         Nothing -> reportFailure $ "Failed to open repository ‘" <> path <> "’"
                     False -> reportFailure $ "File or directory ‘" <> path <> "’ not found"
         Nothing -> do
-            openRepo "." >>= \case
+            openRepo False "." >>= \case
                 Just repo -> return ( ".", JobRootRepo repo )
                 Nothing -> findConfig >>= \case
                     Just path -> BL.readFile path >>= return . parseConfig >>= \case
@@ -253,11 +260,11 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
 
     ciContainingRepo <- case ciJobRoot of
         JobRootRepo repo -> return (Just repo)
-        JobRootConfig _  -> openRepo $ takeDirectory ciRootPath
+        JobRootConfig _  -> openRepo False $ takeDirectory ciRootPath
 
-    let openDeclaredRepo dir ( name, dpath ) = do
+    let openDeclaredRepo dir ( name, ( writable, dpath ) ) = do
             let path = dir </> dpath
-            openRepo path >>= \case
+            openRepo writable path >>= \case
                 Just repo -> return ( name, repo )
                 Nothing -> do
                     absPath <- makeAbsolute path
@@ -272,7 +279,7 @@ runSomeCommand rootPath gopts (SC tproxy) args = do
                     Just repo -> return ( repoName decl, repo )
                     Nothing
                         | Just path <- repoPath decl
-                        -> openDeclaredRepo (takeDirectory ciRootPath) ( repoName decl, path )
+                        -> openDeclaredRepo (takeDirectory ciRootPath) ( repoName decl, ( repoWritable decl, path ) )
 
                         | otherwise
                         -> do

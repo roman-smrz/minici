@@ -1,7 +1,18 @@
 repo source_repo:
+
 repo target_repo:
+  path: "./target2.git"
+  writable: true
+
+repo target_repo_ro:
+  path: "./target3.git"
 
 job push_job:
   push:
     - source: source_repo.commit
       destination: target_repo.branch("master")
+
+job push_job_ro:
+  push:
+    - source: source_repo.commit
+      destination: target_repo_ro.branch("master")

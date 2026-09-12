@@ -63,6 +63,7 @@ import System.Process
 data Repo
     = GitRepo
         { gitDir :: FilePath
+        , gitWritable :: Bool
         , gitLock :: MVar ()
         , gitInotify :: MVar (Maybe ( INotify, TChan (Tag Commit) ))
         , gitWatchedBranches :: MVar (Map Text [ TVar (Maybe Commit) ])
@@ -77,6 +78,7 @@ getRepoWorkDir GitRepo {..} = takeDirectory gitDir
 data DeclaredRepo = DeclaredRepo
     { repoName :: RepoName
     , repoPath :: Maybe FilePath
+    , repoWritable :: Bool
     }
 
 newtype RepoName = RepoName Text
@@ -164,8 +166,8 @@ runGitCommand GitRepo {..} args = liftIO $ do
         readProcess "git" (("--git-dir=" <> gitDir) : args) ""
 
 
-openRepo :: FilePath -> IO (Maybe Repo)
-openRepo path = do
+openRepo :: Bool -> FilePath -> IO (Maybe Repo)
+openRepo gitWritable path = do
     findGitDir >>= \case
         Just gitDir -> do
             gitLock <- newMVar ()
@@ -437,7 +439,9 @@ readCommittedFile Tree {..} path = do
 
 pushToBranch :: (MonadIO m, MonadFail m) => Branch -> Commit -> m ()
 pushToBranch Branch {..} Commit {..} = do
-    liftIO $
+    when (not $ gitWritable branchRepo) $ do
+        fail $ "repo ‘" <> gitDir branchRepo <> "’ is not writable"
+    join $ liftIO $
         withMVar (gitLock branchRepo) $ \_ ->
         withMVar (gitLock commitRepo) $ \_ -> do
             let cmd = (proc "git" [ "--git-dir=" <> gitDir commitRepo, "push", "--quiet", "--porcelain", gitDir branchRepo, showCommitId commitId_ <> ":refs/heads/" <> T.unpack branchName ])
@@ -448,8 +452,8 @@ pushToBranch Branch {..} Commit {..} = do
             createProcess cmd >>= \( _, mbstdout, _, ph ) -> if
                 | Just _ <- mbstdout -> do
                     waitForProcess ph >>= \case
-                        ExitSuccess -> return ()
-                        code -> fail $ "git push exited with error: " <> show code
+                        ExitSuccess -> return $ return ()
+                        code -> return $ fail $ "git push exited with error: " <> show code
                 | otherwise -> error "createProcess must return stdout handle"
 
 
