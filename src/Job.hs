@@ -71,16 +71,17 @@ data ArtifactOutput = ArtifactOutput
     deriving (Eq)
 
 
-data JobStatus a = JobQueued
-                 | JobDuplicate JobId (JobStatus a)
-                 | JobPreviousStatus (JobStatus a)
-                 | JobWaiting [JobName]
-                 | JobRunning
-                 | JobSkipped
-                 | JobError OutputFootnote
-                 | JobFailed
-                 | JobCancelled
-                 | JobDone a
+data JobStatus a
+    = JobQueued
+    | JobDuplicate JobId (JobStatus a)
+    | JobPreviousStatus (JobStatus a)
+    | JobWaiting [JobName]
+    | JobRunning
+    | JobSkipped
+    | JobError (Either Text OutputFootnote)
+    | JobFailed
+    | JobCancelled
+    | JobDone a
     deriving (Eq)
 
 jobStatusFinished :: JobStatus a -> Bool
@@ -120,12 +121,12 @@ textJobStatus = \case
     JobCancelled -> "cancelled"
     JobDone _ -> "done"
 
-readJobStatus :: (MonadIO m) => Output -> Text -> m a -> m (Maybe (JobStatus a))
-readJobStatus tout text readResult = case T.lines text of
+readJobStatus :: (MonadIO m) => Text -> m a -> m (Maybe (JobStatus a))
+readJobStatus text readResult = case T.lines text of
     "queued" : _ -> return (Just JobQueued)
     "running" : _ -> return (Just JobRunning)
     "skipped" : _ -> return (Just JobSkipped)
-    "error" : note : _ -> Just . JobError <$> liftIO (outputFootnote tout note)
+    "error" : note : _ -> return (Just $ JobError $ Left note)
     "failed" : _ -> return (Just JobFailed)
     "cancelled" : _ -> return (Just JobCancelled)
     "done" : _ -> Just . JobDone <$> readResult
@@ -133,9 +134,14 @@ readJobStatus tout text readResult = case T.lines text of
 
 textJobStatusDetails :: JobStatus a -> Text
 textJobStatusDetails = \case
-    JobError err -> footnoteText err <> "\n"
+    JobError err -> either id footnoteText err <> "\n"
     JobPreviousStatus s -> textJobStatusDetails s
     _ -> ""
+
+printStatusError :: MonadIO m => Output -> JobStatus a -> m (JobStatus a)
+printStatusError tout = \case
+    JobError (Left note) -> JobError . Right <$> liftIO (outputFootnote tout note)
+    status -> return status
 
 
 data JobManager = JobManager
@@ -249,7 +255,7 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                     | Just JobCancelledException <- fromException e -> do
                         return JobCancelled
                     | otherwise -> do
-                        JobError <$> outputFootnote tout (T.pack $ displayException e)
+                        JobError . Right <$> outputFootnote tout (T.pack $ displayException e)
                 atomically $ writeTVar taskStatus status
                 outputJobFinishedEvent tout taskJob status
 
@@ -268,9 +274,9 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                     case duplicate of
                         Nothing -> do
                             let jdir = jmDataDir </> jobStorageSubdir (jobId taskJob)
-                            readStatusFile tout taskJob jdir >>= \case
+                            readStatusFile taskJob jdir >>= \case
                                 Just status | status /= JobCancelled && not (rerun (jobId taskJob) status) -> do
-                                    let status' = JobPreviousStatus status
+                                    status' <- JobPreviousStatus <$> printStatusError tout status
                                     liftIO $ atomically $ writeTVar taskStatus status'
                                     return status'
                                 mbStatus -> do
@@ -323,12 +329,12 @@ waitForUsedArtifacts tout job results outVar = do
 
     forM_ selfSpecs $ \( _, artName@(ArtifactName tname) ) -> do
         when (not (artName `elem` map fst (jobArtifacts job))) $ do
-            throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact ‘" <> tname <> "’ not produced by the job")
+            throwError . JobError . Right =<< liftIO (outputFootnote tout $ "Artifact ‘" <> tname <> "’ not produced by the job")
 
     ujobs <- forM artSpecs $ \( ujobId, uartName ) -> do
         case find (\( j, _, _ ) -> jobId j == ujobId) results of
             Just ( _, _, var ) -> return ( var, ( ujobId, uartName ))
-            Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Job ‘" <> textJobId ujobId <> "’ not found")
+            Nothing -> throwError . JobError . Right =<< liftIO (outputFootnote tout $ "Job ‘" <> textJobId ujobId <> "’ not found")
 
     let loop prev = do
             ustatuses <- atomically $ do
@@ -348,7 +354,7 @@ waitForUsedArtifacts tout job results outVar = do
         case jobResult ustatus of
             Just out -> case find ((==uartName) . aoutName) $ outArtifacts out of
                 Just art -> return ( spec, art )
-                Nothing -> throwError . JobError =<< liftIO (outputFootnote tout $ "Artifact ‘" <> textJobId tjobId <> "." <> tartName <> "’ not found")
+                Nothing -> throwError . JobError . Right =<< liftIO (outputFootnote tout $ "Artifact ‘" <> textJobId tjobId <> "." <> tartName <> "’ not found")
             _ -> throwError JobSkipped
 
 outputJobFinishedEvent :: Output -> Job -> JobStatus a -> IO ()
@@ -358,11 +364,11 @@ outputJobFinishedEvent tout job = \case
     JobSkipped          -> outputEvent tout $ JobWasSkipped (jobId job)
     s                   -> outputEvent tout $ JobFinished (jobId job) (textJobStatus s)
 
-readStatusFile :: (MonadIO m, MonadCatch m) => Output -> Job -> FilePath -> m (Maybe (JobStatus JobOutput))
-readStatusFile tout job jdir = do
+readStatusFile :: (MonadIO m, MonadCatch m) => Job -> FilePath -> m (Maybe (JobStatus JobOutput))
+readStatusFile job jdir = do
     handleIOError (\_ -> return Nothing) $ do
         text <- liftIO $ T.readFile (jdir </> "status")
-        readJobStatus tout text $ do
+        readJobStatus text $ do
             artifacts <- forM (jobArtifacts job) $ \( aoutName@(ArtifactName tname), _ ) -> do
                 let adir = jdir </> "artifacts" </> T.unpack tname
                     aoutStorePath = adir </> "data"

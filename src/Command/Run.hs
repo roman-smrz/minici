@@ -440,7 +440,7 @@ showStatus blink = \case
     JobWaiting uses -> "\ESC[94m~" <> fitToLength 6 (T.intercalate "," (map textJobName uses)) <> "\ESC[0m"
     JobSkipped      ->  " \ESC[0m-\ESC[0m     "
     JobRunning      -> " \ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m     "
-    JobError fnote  -> "\ESC[91m" <> fitToLength 7 ("!! [" <> T.pack (maybe "?" (show . tfNumber) (footnoteTerminal fnote)) <> "]") <> "\ESC[0m"
+    JobError fnote  -> "\ESC[91m" <> fitToLength 7 ("!! [" <> T.pack (maybe "?" (show . tfNumber) (either (const Nothing) footnoteTerminal fnote)) <> "]") <> "\ESC[0m"
     JobFailed       -> " \ESC[91m✗\ESC[0m     "
     JobCancelled    ->  " \ESC[0mC\ESC[0m     "
     JobDone _       -> " \ESC[92m✓\ESC[0m     "
