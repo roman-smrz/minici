@@ -239,8 +239,16 @@ watchExpressionSource expr = do
                 let einput = einputBase
                         { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev einputBase
                         }
-                jsiJobSet <- either (fail . T.unpack . textEvalError) return =<<
-                    flip runEval einput . evalJobSet [ ( Nothing, RepoRefTree tree ) ] =<< loadJobSetFromRoot root commit
+                dset <- loadJobSetFromRoot root commit
+                let fset err = JobSet
+                        { jobsetId = JobSetId $ reverse $ eiCurrentIdRev einput
+                        , jobsetConfig = Nothing
+                        , jobsetCommit = Just commit
+                        , jobsetExplicitlyRequested = []
+                        , jobsetJobsEither = Left $ T.unpack $ textEvalError err
+                        }
+                jsiJobSet <- fmap (either fset id) $ flip runEval einput $
+                    evalJobSet [ ( Nothing, RepoRefTree tree ) ] dset
                 jsiCancelAction <- Just <$> newEmptyMVar
                 return JobSourceItem {..}
 
@@ -285,8 +293,16 @@ watchTagSource pat = do
                 let einput = einputBase
                         { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev einputBase
                         }
-                jsiJobSet <- either (fail . T.unpack . textEvalError) return =<<
-                    flip runEval einput . evalJobSet [ ( Nothing, RepoRefTree tree ) ] =<< loadJobSetFromRoot root (tagObject tag)
+                dset <- loadJobSetFromRoot root (tagObject tag)
+                let fset err = JobSet
+                        { jobsetId = JobSetId $ reverse $ eiCurrentIdRev einput
+                        , jobsetConfig = Nothing
+                        , jobsetCommit = Just $ tagObject tag
+                        , jobsetExplicitlyRequested = []
+                        , jobsetJobsEither = Left $ T.unpack $ textEvalError err
+                        }
+                jsiJobSet <- fmap (either fset id) $ flip runEval einput $
+                    evalJobSet [ ( Nothing, RepoRefTree tree ) ] dset
                 let jsiCancelAction = Nothing
                 nextvar <- newEmptyTMVarIO
                 atomically $ putTMVar tmvar $ Just ( [ JobSourceItem {..} ], JobSource nextvar )
