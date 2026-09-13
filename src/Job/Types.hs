@@ -87,6 +87,12 @@ data ArtifactName = ArtifactName Text
 
 type ArtifactSpec d = ( JobId' d, ArtifactName )
 
+stringArtifactName :: ArtifactName -> String
+stringArtifactName (ArtifactName name) = T.unpack name
+
+textArtifactName :: ArtifactName -> Text
+textArtifactName (ArtifactName name) = name
+
 
 data JobSet' d = JobSet
     { jobsetId :: JobSetId' d

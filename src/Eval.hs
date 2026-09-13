@@ -237,16 +237,18 @@ evalJobs (current : evaluating) evaluated repos dset reqs = do
                 }
 
         uses <- forM (jobUses current) $ \( jname, aname ) -> do
-            Just (Right job) <- return $ find ((jname ==) . either id jobName) evaluated
-            return ( jobId job, aname )
+            case find ((jname ==) . either id jobName) evaluated of
+                Just (Right job) -> return ( jobId job, aname )
+                _ -> throwError $ OtherEvalError $ "artifact ‘" <> textArtifactName aname <> "’ in job ‘" <> textJobName jname <> "’ required by ‘" <> textJobName (jobName current) <> "’ not found"
 
         destinations <- forM (jobPublish current) $ \dpublish -> do
-            let ( jname, _ ) = jpArtifact dpublish
+            let ( jname, aname ) = jpArtifact dpublish
             jid <- if
                 | jname == jobName current -> return currentJobId
                 | otherwise -> do
-                    Just (Right job) <- return $ find ((jname ==) . either id jobName) evaluated
-                    return $ jobId job
+                    case find ((jname ==) . either id jobName) evaluated of
+                        Just (Right job) -> return $ jobId job
+                        _ -> throwError $ OtherEvalError $ "artifact ‘" <> textArtifactName aname <> "’ in job ‘" <> textJobName jname <> "’ required by ‘" <> textJobName (jobName current) <> "’ not found"
 
             case lookup (jpDestination dpublish) eiDestinations of
                 Just dest -> return dpublish
