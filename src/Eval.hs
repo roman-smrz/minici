@@ -48,10 +48,19 @@ textEvalError :: EvalError -> Text
 textEvalError (OtherEvalError text) = text
 
 
-type Eval a = ReaderT EvalInput (ExceptT EvalError IO) a
+newtype Eval a = Eval (ReaderT EvalInput (ExceptT EvalError IO) a)
+  deriving
+    ( Functor, Applicative, Monad
+    , MonadReader EvalInput
+    , MonadError EvalError
+    , MonadIO
+    )
+
+instance MonadFail Eval where
+    fail = throwError . OtherEvalError . T.pack
 
 runEval :: Eval a -> EvalInput -> IO (Either EvalError a)
-runEval action einput = runExceptT $ flip runReaderT einput action
+runEval (Eval action) einput = runExceptT $ flip runReaderT einput action
 
 
 eval :: forall ctx a. ctx -> Expr ctx a -> Eval a
