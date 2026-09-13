@@ -181,8 +181,9 @@ evalJobs (current : evaluating) evaluated repos dset reqs
 
 evalJobs (current : evaluating) evaluated repos dset reqs
     | Just missing <- find (`notElem` (jobName current : map (either id jobName) evaluated)) $ map fst $ jobRequiredArtifacts current
-    , d <- either (const Nothing) (find ((missing ==) . jobName)) (jobsetJobsEither dset)
-    = evalJobs (fromJust d : current : evaluating) evaluated repos dset reqs
+    , Right jset <- jobsetJobsEither dset
+    , Just d <- find ((missing ==) . jobName) jset
+    = evalJobs (d : current : evaluating) evaluated repos dset reqs
 
 evalJobs (current : evaluating) evaluated repos dset reqs = do
     EvalInput {..} <- ask
