@@ -434,39 +434,42 @@ fitToLength maxlen str | len <= maxlen = str <> T.replicate (maxlen - len) " "
                        | otherwise     = T.take (maxlen - 1) str <> "…"
     where len = T.length str
 
-showStatus :: Bool -> JobStatus a -> Text
-showStatus blink = \case
-    JobQueued       -> " \ESC[94m…\ESC[0m     "
-    JobWaiting uses -> "\ESC[94m~" <> fitToLength 6 (T.intercalate "," (map textJobName uses)) <> "\ESC[0m"
-    JobSkipped      ->  " \ESC[0m-\ESC[0m     "
-    JobRunning      -> " \ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m     "
-    JobError fnote  -> "\ESC[91m" <> fitToLength 7 ("!! [" <> T.pack (maybe "?" (show . tfNumber) (either (const Nothing) footnoteTerminal fnote)) <> "]") <> "\ESC[0m"
-    JobFailed       -> " \ESC[91m✗\ESC[0m     "
-    JobCancelled    ->  " \ESC[0mC\ESC[0m     "
-    JobDone _       -> " \ESC[92m✓\ESC[0m     "
+showStatus :: Int -> Bool -> ( JobStatus a, [ OutputFootnote ] ) -> Text
+showStatus width blink ( status, fnotes ) = case status of
+    JobQueued       -> " \ESC[94m…\ESC[0m" <> showNotes (width - 2)
+    JobWaiting uses -> "\ESC[94m~" <> fitToLength (width - 1) (T.intercalate "," (map textJobName uses) <> showNotes (width - 1)) <> "\ESC[0m"
+    JobSkipped      ->  " \ESC[0m-\ESC[0m" <> showNotes (width - 2)
+    JobRunning      -> " \ESC[96m" <> (if blink then "*" else "•") <> "\ESC[0m" <> showNotes 5
+    JobError _      -> "\ESC[91m!!\ESC[0m" <> showNotes (width - 2)
+    JobFailed       -> " \ESC[91m✗\ESC[0m" <> showNotes (width - 2)
+    JobCancelled    ->  " \ESC[0mC\ESC[0m" <> showNotes (width - 2)
+    JobDone _       -> " \ESC[92m✓\ESC[0m" <> showNotes (width - 2)
 
     JobDuplicate _ s -> case s of
-        JobQueued    -> " \ESC[94m^\ESC[0m     "
-        JobWaiting _ -> " \ESC[94m^\ESC[0m     "
-        JobSkipped   ->  " \ESC[0m-\ESC[0m     "
-        JobRunning   -> " \ESC[96m" <> (if blink then "*" else "^") <> "\ESC[0m     "
-        _            -> showStatus blink s
+        JobQueued    -> " \ESC[94m^\ESC[0m" <> showNotes (width - 2)
+        JobWaiting _ -> " \ESC[94m^\ESC[0m" <> showNotes (width - 2)
+        JobSkipped   ->  " \ESC[0m-\ESC[0m" <> showNotes (width - 2)
+        JobRunning   -> " \ESC[96m" <> (if blink then "*" else "^") <> "\ESC[0m" <> showNotes (width - 2)
+        _            -> showStatus width blink ( s, fnotes )
 
-    JobPreviousStatus (JobDone _) -> "\ESC[90m«\ESC[32m✓\ESC[0m     "
-    JobPreviousStatus (JobFailed) -> "\ESC[90m«\ESC[31m✗\ESC[0m     "
-    JobPreviousStatus s           -> "\ESC[90m«" <> T.init (showStatus blink s)
+    JobPreviousStatus (JobDone _) -> "\ESC[90m«\ESC[32m✓\ESC[0m" <> showNotes (width - 2)
+    JobPreviousStatus (JobFailed) -> "\ESC[90m«\ESC[31m✗\ESC[0m" <> showNotes (width - 2)
+    JobPreviousStatus s           -> "\ESC[90m«\ESC[0m" <> showStatus (width - 1) blink ( s, fnotes )
+  where
+    showNotes w = fitToLength w $ T.concat $ " " : map showNote fnotes
+    showNote fnote = "[" <> T.pack (maybe "?" (show . tfNumber) (footnoteTerminal fnote)) <> "]"
 
-displayStatusLine :: TerminalOutput -> TerminalLine -> Text -> Text -> [ Maybe (TVar (JobStatus JobOutput)) ] -> IO ()
+displayStatusLine :: TerminalOutput -> TerminalLine -> Text -> Text -> [ Maybe (TVar ( JobStatus JobOutput, [ OutputFootnote ] )) ] -> IO ()
 displayStatusLine tout line prefix1 prefix2 statuses = do
     go "\0"
   where
     go prev = do
-        (ss, cur) <- atomically $ do
-            ss <- mapM (sequence . fmap readTVar) statuses
+        ( ss, cur ) <- atomically $ do
+            sns <- mapM (sequence . fmap readTVar) statuses
             blink <- terminalBlinkStatus tout
-            let cur = T.concat $ map (maybe "        " ((" " <>) . showStatus blink)) ss
+            let cur = T.concat $ map (maybe "        " ((" " <>) . showStatus 7 blink)) sns
             when (cur == prev) retry
-            return (ss, cur)
+            return ( map (fmap fst) sns, cur )
 
         let prefix1' = if any (maybe False jobStatusFailed) ss
                          then "\ESC[91m" <> prefix1 <> "\ESC[0m"
@@ -477,9 +480,9 @@ displayStatusLine tout line prefix1 prefix2 statuses = do
            then return ()
            else go cur
 
-waitForJobStatuses :: [ Maybe (TVar (JobStatus a)) ] -> IO ()
+waitForJobStatuses :: [ Maybe (TVar ( JobStatus a, [ OutputFootnote ] )) ] -> IO ()
 waitForJobStatuses mbstatuses = do
     let statuses = catMaybes mbstatuses
     atomically $ do
         ss <- mapM readTVar statuses
-        when (any (not . jobStatusFinished) ss) retry
+        when (any (not . jobStatusFinished . fst) ss) retry

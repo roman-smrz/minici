@@ -78,7 +78,7 @@ data JobStatus a
     | JobWaiting [JobName]
     | JobRunning
     | JobSkipped
-    | JobError (Either Text OutputFootnote)
+    | JobError Text
     | JobFailed
     | JobCancelled
     | JobDone a
@@ -126,7 +126,7 @@ readJobStatus text readResult = case T.lines text of
     "queued" : _ -> return (Just JobQueued)
     "running" : _ -> return (Just JobRunning)
     "skipped" : _ -> return (Just JobSkipped)
-    "error" : note : _ -> return (Just $ JobError $ Left note)
+    "error" : note : _ -> return (Just $ JobError note)
     "failed" : _ -> return (Just JobFailed)
     "cancelled" : _ -> return (Just JobCancelled)
     "done" : _ -> Just . JobDone <$> readResult
@@ -134,20 +134,20 @@ readJobStatus text readResult = case T.lines text of
 
 textJobStatusDetails :: JobStatus a -> Text
 textJobStatusDetails = \case
-    JobError err -> either id footnoteText err <> "\n"
+    JobError err -> err <> "\n"
     JobPreviousStatus s -> textJobStatusDetails s
     _ -> ""
 
-printStatusError :: MonadIO m => Output -> JobStatus a -> m (JobStatus a)
+printStatusError :: MonadIO m => Output -> JobStatus a -> m [ OutputFootnote ]
 printStatusError tout = \case
-    JobError (Left note) -> JobError . Right <$> liftIO (outputFootnote tout note)
-    status -> return status
+    JobError note -> (: []) <$> liftIO (outputFootnote tout note)
+    _ -> return []
 
 
 data JobManager = JobManager
     { jmMaxRunningTasks :: Int
     , jmDataDir :: FilePath
-    , jmJobs :: TVar (Map JobId (TVar (JobStatus JobOutput)))
+    , jmJobs :: TVar (Map JobId (TVar ( JobStatus JobOutput, [ OutputFootnote ] )))
     , jmNextTaskId :: TVar TaskId
     , jmReadyTasks :: TVar (Set TaskId)
     , jmRunningTasks :: TVar (Map TaskId ThreadId)
@@ -159,7 +159,7 @@ data Task = Task
     { taskId :: TaskId
     , taskJob :: Job
     , taskThread :: ThreadId
-    , taskStatus :: TVar (JobStatus JobOutput)
+    , taskStatus :: TVar ( JobStatus JobOutput, [ OutputFootnote ] )
     }
 
 newtype TaskId = TaskId Int
@@ -237,26 +237,27 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
             ( job, tid, ) <$> case M.lookup (jobId job) managed of
                 Just origVar -> do
                     readTVar origVar >>= \case
-                        JobCancelled -> do
+                        ( JobCancelled, notes ) -> do
                             -- Restart previously cancelled job
-                            statusVar <- newTVar JobQueued
+                            statusVar <- newTVar ( JobQueued, notes )
                             writeTVar jmJobs $ M.insert (jobId job) statusVar managed
                             return statusVar
-                        pstatus -> do
-                            newTVar $ JobDuplicate (jobId job) pstatus
+                        ( pstatus, notes ) -> do
+                            newTVar ( JobDuplicate (jobId job) pstatus, notes )
                 Nothing -> do
-                    statusVar <- newTVar JobQueued
+                    statusVar <- newTVar ( JobQueued, [] )
                     writeTVar jmJobs $ M.insert (jobId job) statusVar managed
                     return statusVar
 
     forM results $ \( taskJob, taskId, taskStatus ) -> do
         let handler e = do
-                status <- if
+                statusNote@( status, _ ) <- if
                     | Just JobCancelledException <- fromException e -> do
-                        return JobCancelled
+                        return ( JobCancelled, [] )
                     | otherwise -> do
-                        JobError . Right <$> outputFootnote tout (T.pack $ displayException e)
-                atomically $ writeTVar taskStatus status
+                        let err = T.pack $ displayException e
+                        ( JobError err, ) . (: []) <$> outputFootnote tout err
+                atomically $ writeTVar taskStatus statusNote
                 outputJobFinishedEvent tout taskJob status
 
         handlerInstalled <- newEmptyMVar
@@ -266,7 +267,7 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                 res <- runExceptT $ do
                     duplicate <- liftIO $ atomically $ do
                         readTVar taskStatus >>= \case
-                            JobDuplicate jid _ -> do
+                            ( JobDuplicate jid _, _ ) -> do
                                 fmap ( jid, ) . M.lookup jid <$> readTVar jmJobs
                             _ -> do
                                 return Nothing
@@ -276,16 +277,17 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                             let jdir = jmDataDir </> jobStorageSubdir (jobId taskJob)
                             readStatusFile taskJob jdir >>= \case
                                 Just status | status /= JobCancelled && not (rerun (jobId taskJob) status) -> do
-                                    status' <- JobPreviousStatus <$> printStatusError tout status
-                                    liftIO $ atomically $ writeTVar taskStatus status'
+                                    let status' = JobPreviousStatus status
+                                    notes <- printStatusError tout status
+                                    liftIO $ atomically $ writeTVar taskStatus ( status', notes )
                                     return status'
                                 mbStatus -> do
                                     when (isJust mbStatus) $ do
                                         liftIO $ removeDirectoryRecursive jdir
                                     liftIO $ outputEvent tout $ JobEnqueued (jobId taskJob)
-                                    uses <- waitForUsedArtifacts tout taskJob results taskStatus
+                                    uses <- waitForUsedArtifacts taskJob results taskStatus
                                     runManagedJob mngr taskId (return JobCancelled) $ do
-                                        liftIO $ atomically $ writeTVar taskStatus JobRunning
+                                        liftIO $ atomically $ writeTVar taskStatus ( JobRunning, [] )
                                         liftIO $ outputEvent tout $ JobStarted (jobId taskJob)
                                         prepareJob jmDataDir taskJob $ \checkoutPath -> do
                                             updateStatusFile mngr jdir taskStatus
@@ -294,20 +296,24 @@ runJobs mngr@JobManager {..} tout jobs rerun = do
                         Just ( jid, origVar ) -> do
                             let wait = do
                                     status <- atomically $ do
-                                        status <- readTVar origVar
-                                        out <- readTVar taskStatus
+                                        ( status, onotes ) <- readTVar origVar
+                                        ( out, _ ) <- readTVar taskStatus
                                         if status == out
                                           then retry
                                           else do
-                                            writeTVar taskStatus $ JobDuplicate jid status
+                                            writeTVar taskStatus ( JobDuplicate jid status, onotes )
                                             return status
                                     if jobStatusFinished status
                                       then return $ JobDuplicate jid status
                                       else wait
                             liftIO wait
 
-                atomically $ writeTVar taskStatus $ either id id res
-                outputJobFinishedEvent tout taskJob $ either id id res
+                let finalStatus = either id id res
+                rnotes <- either (printStatusError tout) (const $ return []) res
+                atomically $ do
+                    ( _, notes ) <- readTVar taskStatus
+                    writeTVar taskStatus ( finalStatus, notes ++ rnotes )
+                outputJobFinishedEvent tout taskJob finalStatus
         takeMVar handlerInstalled
         return Task {..}
 
@@ -319,22 +325,22 @@ waitForRemainingTasks JobManager {..} = do
 
 waitForUsedArtifacts
     :: (MonadIO m, MonadError (JobStatus JobOutput) m)
-    => Output -> Job
-    -> [ ( Job, TaskId, TVar (JobStatus JobOutput) ) ]
-    -> TVar (JobStatus JobOutput)
+    => Job
+    -> [ ( Job, TaskId, TVar ( JobStatus JobOutput, [ OutputFootnote ] ) ) ]
+    -> TVar ( JobStatus JobOutput, [ OutputFootnote ] )
     -> m [ ( ArtifactSpec Evaluated, ArtifactOutput ) ]
-waitForUsedArtifacts tout job results outVar = do
+waitForUsedArtifacts job results outVar = do
     origState <- liftIO $ atomically $ readTVar outVar
     let ( selfSpecs, artSpecs ) = partition ((jobId job ==) . fst) $ jobRequiredArtifacts job
 
     forM_ selfSpecs $ \( _, artName@(ArtifactName tname) ) -> do
         when (not (artName `elem` map fst (jobArtifacts job))) $ do
-            throwError . JobError . Right =<< liftIO (outputFootnote tout $ "Artifact ‘" <> tname <> "’ not produced by the job")
+            throwError $ JobError $ "Artifact ‘" <> tname <> "’ not produced by the job"
 
     ujobs <- forM artSpecs $ \( ujobId, uartName ) -> do
         case find (\( j, _, _ ) -> jobId j == ujobId) results of
             Just ( _, _, var ) -> return ( var, ( ujobId, uartName ))
-            Nothing -> throwError . JobError . Right =<< liftIO (outputFootnote tout $ "Job ‘" <> textJobId ujobId <> "’ not found")
+            Nothing -> throwError $ JobError $ "Job ‘" <> textJobId ujobId <> "’ not found"
 
     let loop prev = do
             ustatuses <- atomically $ do
@@ -342,19 +348,19 @@ waitForUsedArtifacts tout job results outVar = do
                     (, uartSpec) <$> readTVar uoutVar
                 when (Just (map fst ustatuses) == prev) retry
                 let remains = map (fromMaybe (JobName "?") . lastJobNameId . fst . snd) $
-                        filter (not . jobStatusFinished . fst) ustatuses
-                writeTVar outVar $ if null remains then origState else JobWaiting remains
+                        filter (not . jobStatusFinished . fst . fst) ustatuses
+                writeTVar outVar $ if null remains then origState else ( JobWaiting remains, [] )
                 return ustatuses
-            if all (jobStatusFinished . fst) ustatuses
+            if all (jobStatusFinished . fst . fst) ustatuses
                then return ustatuses
                else loop $ Just $ map fst ustatuses
     ustatuses <- liftIO $ loop Nothing
 
-    forM ustatuses $ \( ustatus, spec@( tjobId, uartName@(ArtifactName tartName)) ) -> do
+    forM ustatuses $ \( ( ustatus, _ ), spec@( tjobId, uartName@(ArtifactName tartName)) ) -> do
         case jobResult ustatus of
             Just out -> case find ((==uartName) . aoutName) $ outArtifacts out of
                 Just art -> return ( spec, art )
-                Nothing -> throwError . JobError . Right =<< liftIO (outputFootnote tout $ "Artifact ‘" <> textJobId tjobId <> "." <> tartName <> "’ not found")
+                Nothing -> throwError $ JobError $ "Artifact ‘" <> textJobId tjobId <> "." <> tartName <> "’ not found"
             _ -> throwError JobSkipped
 
 outputJobFinishedEvent :: Output -> Job -> JobStatus a -> IO ()
@@ -379,14 +385,14 @@ readStatusFile job jdir = do
                 { outArtifacts = artifacts
                 }
 
-updateStatusFile :: MonadIO m => JobManager -> FilePath -> TVar (JobStatus JobOutput) -> m ()
+updateStatusFile :: MonadIO m => JobManager -> FilePath -> TVar ( JobStatus JobOutput, [ OutputFootnote ] ) -> m ()
 updateStatusFile JobManager {..} jdir outVar = liftIO $ do
     atomically $ writeTVar jmOpenStatusUpdates . (+ 1) =<< readTVar jmOpenStatusUpdates
     void $ forkIO $ loop Nothing
   where
     loop prev = do
         status <- atomically $ do
-            status <- readTVar outVar
+            ( status, _ ) <- readTVar outVar
             when (Just status == prev) retry
             return status
         T.writeFile (jdir </> "status") $ textJobStatus status <> "\n" <> textJobStatusDetails status
