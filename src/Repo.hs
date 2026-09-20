@@ -110,6 +110,7 @@ data Tree = Tree
     { treeRepo :: Repo -- ^ Repository in which the tree is tored
     , treeId :: TreeId -- ^ Tree ID
     , treeSubdir :: FilePath -- ^ Subdirectory represented by this tree (from the repo root)
+    , treeIsDir :: Bool
     }
 
 data Tag a = Tag
@@ -211,9 +212,17 @@ readTreeId repo subdir tid = readTree repo subdir $ textTreeId tid
 
 tryReadTree :: (MonadIO m, MonadFail m) => Repo -> FilePath -> Text -> m (Maybe Tree)
 tryReadTree treeRepo treeSubdir ref = do
-    fmap (fmap TreeId) (tryReadObjectId treeRepo "tree" ref) >>= \case
-        Just treeId -> return $ Just Tree {..}
-        Nothing -> return Nothing
+    tryReadObjectId treeRepo "tree" ref >>= \case
+        Just oid -> do
+            let treeIsDir = True
+                treeId = TreeId oid
+            return $ Just Tree {..}
+        Nothing -> tryReadObjectId treeRepo "blob" ref >>= \case
+            Just oid -> do
+                let treeIsDir = False
+                    treeId = TreeId oid
+                return $ Just Tree {..}
+            Nothing -> return Nothing
 
 tryReadObjectId :: (MonadIO m, MonadFail m) => Repo -> Text -> Text -> m (Maybe ByteString)
 tryReadObjectId GitRepo {..} otype ref = do
@@ -316,6 +325,7 @@ getCommitDetails Commit {..} = do
                 Just treeId <- return $ TreeId . BC.pack <$> lookup "tree" info
                 let treeRepo = commitRepo
                     treeSubdir = ""
+                    treeIsDir = True
                 let commitTree = Tree {..}
                 let commitTitle = T.pack title
                 let commitMessage = T.pack $ unlines $ dropWhile null message
@@ -342,10 +352,18 @@ getSubtree mbCommit path tree = liftIO $ do
         [] -> return tree
         _ -> readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--verify", "--quiet", showTreeId (treeId tree) <> ":" <> joinPath dirs ] "" >>= \case
             ( ExitSuccess, out, _ ) | tid : _ <- lines out -> do
+                isdir <- readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "cat-file", "-t", tid ] "" >>= \case
+                    ( ExitSuccess, otype, _ )
+                        | "tree" : _ <- lines otype -> return True
+                        | "blob" : _ <- lines otype -> return False
+                    _ -> do
+                        fail $ "subtree ‘" <> path <> "’ " <> maybe "" ((" in revision ‘" <>) . (<> "’") . showCommitId . commitId) mbCommit <> " has unknown object type"
+
                 return Tree
                     { treeRepo = treeRepo tree
                     , treeId = TreeId (BC.pack tid)
                     , treeSubdir = joinPath $ treeSubdir tree : dirs
+                    , treeIsDir = isdir
                     }
             _ -> do
                 fail $ "subtree ‘" <> path <> "’ not found" <> maybe "" ((" in revision ‘" <>) . (<> "’") . showCommitId . commitId) mbCommit
@@ -366,8 +384,15 @@ checkoutAt Tree {..} dest = do
                             , curenv
                             ]
                         } input
-        "" <- readGitProcess [ "read-tree", showTreeId treeId ] ""
-        "" <- readGitProcess [ "checkout-index", "--all", "--prefix=" <> addTrailingPathSeparator dest ] ""
+        dest' <- if treeIsDir
+            then do
+                "" <- readGitProcess [ "read-tree", showTreeId treeId ] ""
+                return dest
+            else do
+                "" <- readGitProcess [ "read-tree", "--empty" ] ""
+                "" <- readGitProcess [ "update-index", "--add", "--cacheinfo", "100644," <> showTreeId treeId <> "," <> takeFileName dest ] ""
+                return $ takeDirectory dest
+        "" <- readGitProcess [ "checkout-index", "--all", "--prefix=" <> addTrailingPathSeparator dest' ] ""
         return ()
 
 createWipCommit :: (MonadIO m, MonadMask m, MonadFail m) => Repo -> m Commit
