@@ -32,6 +32,8 @@ import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
+import System.IO.Error
+
 import Job.Types
 import Output
 import Repo
@@ -59,7 +61,8 @@ type DeclaredRevisionExpression = RevisionExpression' Declared
 
 
 data RangeExpression' d
-    = RangeExpression (RevisionExpression' d) {- tip -} (RevisionExpression' d) {- except -}
+    = SingleRevisionExpression (RevisionExpression' d)
+    | RangeExpression (RevisionExpression' d) {- tip -} (RevisionExpression' d) {- except -}
 
 type RangeExpression = RangeExpression' Evaluated
 type DeclaredRangeExpression = RangeExpression' Declared
@@ -71,6 +74,7 @@ data CommitRef = CommitRef Text {- suffix -} CommitId
 data CommitRange
     = EmptyCommitRange
     | CommitRange CommitRef {- tip -} CommitRef {- except -}
+    | CommitSet [ CommitRef ] {- latest first -}
     deriving (Eq)
 
 textCommitRef :: CommitRef -> Text
@@ -88,8 +92,11 @@ evaluateDeclaredRevision repo = \case
     ModifiedRevision suffix rev -> ModifiedRevision suffix <$> evaluateDeclaredRevision repo rev
 
 evaluateDeclaredRange :: (MonadIO m, MonadFail m, MonadOutput m) => Repo -> DeclaredRangeExpression -> m RangeExpression
-evaluateDeclaredRange repo (RangeExpression a b) =
-    RangeExpression <$> evaluateDeclaredRevision repo a <*> evaluateDeclaredRevision repo b
+evaluateDeclaredRange repo = \case
+    SingleRevisionExpression a ->
+        SingleRevisionExpression <$> evaluateDeclaredRevision repo a
+    RangeExpression a b ->
+        RangeExpression <$> evaluateDeclaredRevision repo a <*> evaluateDeclaredRevision repo b
 
 evaluateRevision :: RevisionExpression -> STM (Maybe CommitRef)
 evaluateRevision = \case
@@ -99,20 +106,30 @@ evaluateRevision = \case
         fmap (\(CommitRef suffix' ref) -> CommitRef (suffix' <> suffix) ref) <$> evaluateRevision rev
 
 evaluateRange :: RangeExpression -> STM CommitRange
-evaluateRange (RangeExpression tipExpr exceptExpr) = do
-    tip <- evaluateRevision tipExpr
-    except <- evaluateRevision exceptExpr
-    return $ fromMaybe EmptyCommitRange $ CommitRange <$> tip <*> except
+evaluateRange = \case
+    SingleRevisionExpression revExpr -> do
+        rev <- evaluateRevision revExpr
+        return $ fromMaybe EmptyCommitRange $ CommitSet . (: []) <$> rev
+    RangeExpression tipExpr exceptExpr -> do
+        tip <- evaluateRevision tipExpr
+        except <- evaluateRevision exceptExpr
+        return $ fromMaybe EmptyCommitRange $ CommitRange <$> tip <*> except
 
 getCommitIdFromRef :: MonadIO m => Repo -> CommitRef -> m (Maybe CommitId)
 getCommitIdFromRef repo = liftIO . fmap (fmap commitId) . tryReadCommit repo . textCommitRef
 
 getRangeCommits :: MonadIO m => Repo -> CommitRange -> m [ Commit ]
-getRangeCommits _ EmptyCommitRange = return []
-getRangeCommits repo (CommitRange tip except) = do
-    tipId <- getCommitIdFromRef repo tip
-    excId <- getCommitIdFromRef repo except
-    listCommitsFrom repo (catMaybes [ tipId ]) (catMaybes [ excId ])
+getRangeCommits repo = \case
+    EmptyCommitRange -> do
+        return []
+    CommitRange tip except -> do
+        tipId <- getCommitIdFromRef repo tip
+        excId <- getCommitIdFromRef repo except
+        listCommitsFrom repo (catMaybes [ tipId ]) (catMaybes [ excId ])
+    CommitSet refs -> do
+        return . catMaybes . map (either (const Nothing) Just) =<<
+            mapM (liftIO . tryIOError . readCommitId repo) . catMaybes =<<
+                mapM (getCommitIdFromRef repo) refs
 
 getAddedRangeCommits :: MonadIO m => Repo -> CommitRange -> CommitRange -> m [ Commit ]
 getAddedRangeCommits _    _ EmptyCommitRange = return []
@@ -126,10 +143,15 @@ getAddedRangeCommits repo (CommitRange ar br) (CommitRange ar' br') = do
     (++)
         <$> listCommitsFrom repo a'b (catMaybes [ b' ]) -- added by moving B to B'
         <*> listCommitsFrom repo (catMaybes [ a' ]) (catMaybes [ a, b, b' ]) -- added by moving A to A'
+getAddedRangeCommits repo prev cur = do
+    prevList <- getRangeCommits repo prev
+    curList <- getRangeCommits repo cur
+    return $ filter (not . (`elem` prevList)) curList
 
 
 isRangeExpressionDynamic :: RangeExpression -> Bool
 isRangeExpressionDynamic = \case
+    SingleRevisionExpression x -> isRevisionExpressionDynamic x
     RangeExpression x y -> isRevisionExpressionDynamic x || isRevisionExpressionDynamic y
 
 isRevisionExpressionDynamic :: RevisionExpression -> Bool
@@ -153,7 +175,7 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
               rev2 <- parseRevision
               return $ RangeExpression rev2 rev1
           , do
-              return $ RangeExpression rev1 (ModifiedRevision "^" rev1)
+              return $ SingleRevisionExpression rev1
           ]
 
         eof
