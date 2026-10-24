@@ -17,6 +17,7 @@ module Expression (
 ) where
 
 import Control.Concurrent.STM
+import Control.Monad
 import Control.Monad.IO.Class
 
 import Data.Bifunctor
@@ -32,6 +33,7 @@ import Data.Void
 import Text.Megaparsec
 import Text.Megaparsec.Char
 
+import System.FilePath.Glob as Glob
 import System.IO.Error
 
 import Job.Types
@@ -49,6 +51,21 @@ data WatchedRef
 type family WatchedRef' d :: Type where
     WatchedRef' Declared = Text
     WatchedRef' Evaluated = WatchedRef
+
+
+type family StaticTags' d :: Type where
+    StaticTags' Declared = Pattern
+    StaticTags' Evaluated = [ Tag Commit ]
+
+data WatchedTags = WatchedTags
+    { wtPattern :: Pattern
+    , wtList :: TVar [ Tag Commit ]
+    , wtChan :: TChan (Tag Commit)
+    }
+
+type family WatchedTags' d :: Type where
+    WatchedTags' Declared = Pattern
+    WatchedTags' Evaluated = WatchedTags
 
 
 data RevisionExpression' d
@@ -69,6 +86,8 @@ watchedRevision = \case
 data RangeExpression' d
     = SingleRevisionExpression (RevisionExpression' d)
     | RangeExpression (RevisionExpression' d) {- tip -} (RevisionExpression' d) {- except -}
+    | StaticTagsExpression (StaticTags' d)
+    | WatchedTagsExpression (WatchedTags' d)
 
 type RangeExpression = RangeExpression' Evaluated
 type DeclaredRangeExpression = RangeExpression' Declared
@@ -77,6 +96,8 @@ watchedRange :: DeclaredRangeExpression -> DeclaredRangeExpression
 watchedRange = \case
     SingleRevisionExpression rev -> SingleRevisionExpression (watchedRevision rev)
     RangeExpression r1 r2 -> RangeExpression (watchedRevision r1) (watchedRevision r2)
+    StaticTagsExpression pat -> WatchedTagsExpression pat
+    WatchedTagsExpression pat -> WatchedTagsExpression pat
 
 
 data CommitRef = CommitRef Text {- suffix -} CommitId
@@ -85,7 +106,7 @@ data CommitRef = CommitRef Text {- suffix -} CommitId
 data CommitRange
     = EmptyCommitRange
     | CommitRange CommitRef {- tip -} CommitRef {- except -}
-    | CommitSet [ CommitRef ] {- latest first -}
+    | CommitSet [ CommitRef ]
     deriving (Eq)
 
 textCommitRef :: CommitRef -> Text
@@ -108,6 +129,12 @@ evaluateDeclaredRange repo = \case
         SingleRevisionExpression <$> evaluateDeclaredRevision repo a
     RangeExpression a b ->
         RangeExpression <$> evaluateDeclaredRevision repo a <*> evaluateDeclaredRevision repo b
+    StaticTagsExpression pat ->
+        StaticTagsExpression . filter (Glob.match pat . T.unpack . tagTag) <$> listTags repo
+    WatchedTagsExpression wtPattern -> do
+        wtChan <- watchTags repo
+        wtList <- liftIO . newTVarIO . filter (Glob.match wtPattern . T.unpack . tagTag) =<< listTags repo
+        return $ WatchedTagsExpression WatchedTags {..}
 
 evaluateRevision :: RevisionExpression -> STM (Maybe CommitRef)
 evaluateRevision = \case
@@ -125,6 +152,10 @@ evaluateRange = \case
         tip <- evaluateRevision tipExpr
         except <- evaluateRevision exceptExpr
         return $ fromMaybe EmptyCommitRange $ CommitRange <$> tip <*> except
+    StaticTagsExpression tags -> do
+        return $ CommitSet $ map (CommitRef "" . commitId . tagObject) tags
+    WatchedTagsExpression wt -> do
+        CommitSet . map (CommitRef "" . commitId . tagObject) <$> updateWatchedTags wt
 
 getCommitIdFromRef :: MonadIO m => Repo -> CommitRef -> m (Maybe CommitId)
 getCommitIdFromRef repo = liftIO . fmap (fmap commitId) . tryReadCommit repo . textCommitRef
@@ -164,12 +195,23 @@ isRangeExpressionDynamic :: RangeExpression -> Bool
 isRangeExpressionDynamic = \case
     SingleRevisionExpression x -> isRevisionExpressionDynamic x
     RangeExpression x y -> isRevisionExpressionDynamic x || isRevisionExpressionDynamic y
+    StaticTagsExpression {} -> False
+    WatchedTagsExpression {} -> True
 
 isRevisionExpressionDynamic :: RevisionExpression -> Bool
 isRevisionExpressionDynamic = \case
     StaticRef _ -> False
     WatchedRef _ -> True
     ModifiedRevision _ e -> isRevisionExpressionDynamic e
+
+updateWatchedTags :: WatchedTags -> STM [ Tag Commit ]
+updateWatchedTags wt@WatchedTags {..} = do
+    tryReadTChan wtChan >>= \case
+        Nothing -> readTVar wtList
+        Just tag -> do
+            when (Glob.match wtPattern $ T.unpack $ tagTag tag) $ do
+                writeTVar wtList . (tag :) =<< readTVar wtList
+            updateWatchedTags wt
 
 
 type ExprParser = Parsec Void Text
@@ -204,12 +246,11 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
             ]
 
         range <- choice
-            [ do
-                _ <- char '('
-                arg <- parseRange
-                _ <- char ')'
+            [ between (char '(') (char ')') $ do
                 case tok of
-                    "watch" -> return $ watchedRange arg
+                    "watch" -> watchedRange <$> parseRange
+                    "tags" -> StaticTagsExpression . compile . T.unpack <$>
+                        takeWhile1P Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '.', '[', ']', '*', '?' ])
                     _ -> unexpected $ Tokens $ NE.fromList $ chunkToTokens @Text Proxy tok
 
             , do

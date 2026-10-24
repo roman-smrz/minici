@@ -16,6 +16,7 @@ module Repo (
     readBranch,
     readTag, tryReadTag,
     listCommits, listCommitsFrom,
+    listTags,
     mergeBase,
     findUpstreamRef,
 
@@ -286,6 +287,16 @@ listCommitsFrom commitRepo from except = liftIO $ do
         let commitId_ = CommitId (BC.pack cid)
         commitDetails <- newMVar Nothing
         return Commit {..}
+
+listTags :: MonadIO m => Repo -> m [ Tag Commit ]
+listTags repo = liftIO $ do
+    out <- runGitCommand repo
+        [ "for-each-ref", "refs/tags"
+        , "--format=%(objecttype) %(refname:short)"
+        ]
+    fmap catMaybes $ forM (map words $ lines out) $ \case
+        [ "tag", tname ] -> tryReadTag repo (T.pack tname)
+        _ -> return Nothing
 
 mergeBase :: MonadIO m => Repo -> [ CommitId ] -> m [ Commit ]
 mergeBase commitRepo cids = liftIO $ do
