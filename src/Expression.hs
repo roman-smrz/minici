@@ -59,6 +59,12 @@ data RevisionExpression' d
 type RevisionExpression = RevisionExpression' Evaluated
 type DeclaredRevisionExpression = RevisionExpression' Declared
 
+watchedRevision :: DeclaredRevisionExpression -> DeclaredRevisionExpression
+watchedRevision = \case
+    StaticRef r -> WatchedRef r
+    WatchedRef r -> WatchedRef r
+    ModifiedRevision m r -> ModifiedRevision m (watchedRevision r)
+
 
 data RangeExpression' d
     = SingleRevisionExpression (RevisionExpression' d)
@@ -66,6 +72,11 @@ data RangeExpression' d
 
 type RangeExpression = RangeExpression' Evaluated
 type DeclaredRangeExpression = RangeExpression' Declared
+
+watchedRange :: DeclaredRangeExpression -> DeclaredRangeExpression
+watchedRange = \case
+    SingleRevisionExpression rev -> SingleRevisionExpression (watchedRevision rev)
+    RangeExpression r1 r2 -> RangeExpression (watchedRevision r1) (watchedRevision r2)
 
 
 data CommitRef = CommitRef Text {- suffix -} CommitId
@@ -168,43 +179,48 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
   where
     parser :: ExprParser DeclaredRangeExpression
     parser = do
-        rev1 <- parseRevision
-        expr <- choice
+        range <- parseRange
+        eof
+        return range
+
+    parseRange :: ExprParser DeclaredRangeExpression
+    parseRange = do
+        range <- parseRevision
+        choice
           [ do
+              SingleRevisionExpression rev1 <- return range
               _ <- string ".."
-              rev2 <- parseRevision
+              SingleRevisionExpression rev2 <- parseRevision
               return $ RangeExpression rev2 rev1
           , do
-              return $ SingleRevisionExpression rev1
+              return range
           ]
 
-        eof
-        return expr
-
-    parseRevision :: ExprParser DeclaredRevisionExpression
+    parseRevision :: ExprParser DeclaredRangeExpression
     parseRevision = do
         tok <- fmap T.concat $ some $ choice
             [ takeWhile1P Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '/' ])
             , try $ string "." <* notFollowedBy (char '.')
             ]
 
-        rev <- choice
+        range <- choice
             [ do
                 _ <- char '('
-                arg <- takeWhileP Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '/', '.' ])
+                arg <- parseRange
                 _ <- char ')'
                 case tok of
-                    "watch" -> return $ WatchedRef arg
+                    "watch" -> return $ watchedRange arg
                     _ -> unexpected $ Tokens $ NE.fromList $ chunkToTokens @Text Proxy tok
 
             , do
-                return $ StaticRef tok
+                return $ SingleRevisionExpression $ StaticRef tok
             ]
 
         choice
             [ do
+                SingleRevisionExpression rev <- return range
                 suffix <- takeWhile1P Nothing (\x -> isNumber x || x `elem` [ '~', '^', '@', '{', '}' ])
-                return $ ModifiedRevision suffix rev
+                return $ SingleRevisionExpression $ ModifiedRevision suffix rev
             , do
-                return rev
+                return range
             ]
