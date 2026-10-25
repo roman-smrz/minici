@@ -1,4 +1,5 @@
 module Expression (
+    DeclaredRef(..),
     StaticRef',
     WatchedRef(..),
     WatchedRef',
@@ -22,7 +23,9 @@ import Control.Monad.IO.Class
 
 import Data.Bifunctor
 import Data.Char
+import Data.Function
 import Data.Kind
+import Data.List
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe
 import Data.Proxy
@@ -41,15 +44,20 @@ import Output
 import Repo
 
 
+data DeclaredRef
+    = TextRef Text
+    | TagRef Pattern (Tag Commit -> Tag Commit -> Tag Commit)
+
 type family StaticRef' d :: Type where
-    StaticRef' Declared = Text
+    StaticRef' Declared = DeclaredRef
     StaticRef' Evaluated = Commit
 
 data WatchedRef
     = BranchRef (STM (Maybe Commit))
+    | WatchedTagRef (WatchedTags (Tag Commit))
 
 type family WatchedRef' d :: Type where
-    WatchedRef' Declared = Text
+    WatchedRef' Declared = DeclaredRef
     WatchedRef' Evaluated = WatchedRef
 
 
@@ -57,15 +65,16 @@ type family StaticTags' d :: Type where
     StaticTags' Declared = Pattern
     StaticTags' Evaluated = [ Tag Commit ]
 
-data WatchedTags = WatchedTags
+data WatchedTags a = WatchedTags
     { wtPattern :: Pattern
-    , wtList :: TVar [ Tag Commit ]
+    , wtUpdate :: Tag Commit -> a -> a
+    , wtValue :: TVar a
     , wtChan :: TChan (Tag Commit)
     }
 
 type family WatchedTags' d :: Type where
     WatchedTags' Declared = Pattern
-    WatchedTags' Evaluated = WatchedTags
+    WatchedTags' Evaluated = WatchedTags [ Tag Commit ]
 
 
 data RevisionExpression' d
@@ -115,12 +124,25 @@ textCommitRef (CommitRef suffix cid) = textCommitId cid <> suffix
 
 evaluateDeclaredRevision :: (MonadIO m, MonadFail m, MonadOutput m) => Repo -> DeclaredRevisionExpression -> m RevisionExpression
 evaluateDeclaredRevision repo = \case
-    StaticRef ref -> StaticRef <$> readCommit repo ref
-    WatchedRef ref -> do
+    StaticRef (TextRef ref) -> StaticRef <$> readCommit repo ref
+    StaticRef (TagRef pat sel) -> do
+        filter (Glob.match pat . T.unpack . tagTag) <$> listTags repo >>= \case
+            [] -> fail $ "no tag matching " <> show (decompile pat) <> " found"
+            ts -> return $ StaticRef $ tagObject $ foldl1' sel ts
+
+    WatchedRef (TextRef ref) -> do
         watched <- watchBranch repo ref
         output <- getOutput
         outputEvent output $ TestMessage $ "watch-branch-started " <> ref
         return $ WatchedRef $ BranchRef watched
+    WatchedRef (TagRef wtPattern wtUpdate) -> do
+        wtChan <- watchTags repo
+        value <- filter (Glob.match wtPattern . T.unpack . tagTag) <$> listTags repo >>= \case
+            [] -> fail $ "no tag matching " <> show (decompile wtPattern) <> " found"
+            ts -> return $ foldl1' wtUpdate ts
+        wtValue <- liftIO $ newTVarIO value
+        return $ WatchedRef $ WatchedTagRef WatchedTags {..}
+
     ModifiedRevision suffix rev -> ModifiedRevision suffix <$> evaluateDeclaredRevision repo rev
 
 evaluateDeclaredRange :: (MonadIO m, MonadFail m, MonadOutput m) => Repo -> DeclaredRangeExpression -> m RangeExpression
@@ -133,13 +155,15 @@ evaluateDeclaredRange repo = \case
         StaticTagsExpression . filter (Glob.match pat . T.unpack . tagTag) <$> listTags repo
     WatchedTagsExpression wtPattern -> do
         wtChan <- watchTags repo
-        wtList <- liftIO . newTVarIO . filter (Glob.match wtPattern . T.unpack . tagTag) =<< listTags repo
+        wtValue <- liftIO . newTVarIO . filter (Glob.match wtPattern . T.unpack . tagTag) =<< listTags repo
+        let wtUpdate = (:)
         return $ WatchedTagsExpression WatchedTags {..}
 
 evaluateRevision :: RevisionExpression -> STM (Maybe CommitRef)
 evaluateRevision = \case
     StaticRef commit -> return $ Just $ CommitRef "" $ commitId commit
     WatchedRef (BranchRef getter) -> fmap (CommitRef "" . commitId) <$> getter
+    WatchedRef (WatchedTagRef wt) -> Just . CommitRef "" . commitId . tagObject <$> updateWatchedTags wt
     ModifiedRevision suffix rev ->
         fmap (\(CommitRef suffix' ref) -> CommitRef (suffix' <> suffix) ref) <$> evaluateRevision rev
 
@@ -204,13 +228,13 @@ isRevisionExpressionDynamic = \case
     WatchedRef _ -> True
     ModifiedRevision _ e -> isRevisionExpressionDynamic e
 
-updateWatchedTags :: WatchedTags -> STM [ Tag Commit ]
+updateWatchedTags :: WatchedTags a -> STM a
 updateWatchedTags wt@WatchedTags {..} = do
     tryReadTChan wtChan >>= \case
-        Nothing -> readTVar wtList
+        Nothing -> readTVar wtValue
         Just tag -> do
             when (Glob.match wtPattern $ T.unpack $ tagTag tag) $ do
-                writeTVar wtList . (tag :) =<< readTVar wtList
+                writeTVar wtValue . (wtUpdate tag) =<< readTVar wtValue
             updateWatchedTags wt
 
 
@@ -249,12 +273,14 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
             [ between (char '(') (char ')') $ do
                 case tok of
                     "watch" -> watchedRange <$> parseRange
-                    "tags" -> StaticTagsExpression . compile . T.unpack <$>
-                        takeWhile1P Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '.', '[', ']', '*', '?' ])
+                    "tags" -> StaticTagsExpression <$> parseTagPattern
+                    "highesttag" -> do
+                        pat <- parseTagPattern
+                        return $ SingleRevisionExpression $ StaticRef $ TagRef pat higherTag
                     _ -> unexpected $ Tokens $ NE.fromList $ chunkToTokens @Text Proxy tok
 
             , do
-                return $ SingleRevisionExpression $ StaticRef tok
+                return $ SingleRevisionExpression $ StaticRef $ TextRef tok
             ]
 
         choice
@@ -265,3 +291,18 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
             , do
                 return range
             ]
+
+    parseTagPattern = compile . T.unpack <$> takeWhile1P Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '.', '[', ']', '*', '?' ])
+
+
+higherTag :: Tag a -> Tag a -> Tag a
+higherTag t t'
+    | components t < components t' = t'
+    | otherwise                    = t
+  where
+    components = map component . T.groupBy ((==) `on` isDigit) . tagTag
+    component s
+        | Just ( c, _ ) <- T.uncons s, isDigit c
+        = Left $ read @Integer $ T.unpack s
+        | otherwise
+        = Right s
