@@ -31,6 +31,7 @@ import Data.Maybe
 import Data.Proxy
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Time.LocalTime
 import Data.Void
 
 import Text.Megaparsec
@@ -277,6 +278,9 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
                     "highesttag" -> do
                         pat <- parseTagPattern
                         return $ SingleRevisionExpression $ StaticRef $ TagRef pat higherTag
+                    "lasttag" -> do
+                        pat <- parseTagPattern
+                        return $ SingleRevisionExpression $ StaticRef $ TagRef pat laterTag
                     _ -> unexpected $ Tokens $ NE.fromList $ chunkToTokens @Text Proxy tok
 
             , do
@@ -306,3 +310,8 @@ higherTag t t'
         = Left $ read @Integer $ T.unpack s
         | otherwise
         = Right s
+
+laterTag :: Tag a -> Tag a -> Tag a
+laterTag t t'
+    | zonedTimeToUTC (tagTime t) < zonedTimeToUTC (tagTime t') = t'
+    | otherwise                                                = t

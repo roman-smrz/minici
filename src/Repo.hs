@@ -52,6 +52,8 @@ import Data.Maybe
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding
+import Data.Time.Format
+import Data.Time.LocalTime
 
 import System.Environment
 import System.Exit
@@ -118,6 +120,8 @@ data Tag a = Tag
     { tagTag :: Text
     , tagId :: TagId
     , tagObject :: a
+    , tagTagger :: Text
+    , tagTime :: ZonedTime
     , tagMessage :: Text
     }
 
@@ -263,6 +267,11 @@ tryReadTag repo tag = do
         guard (otype == "commit")
         tagTag <- T.pack <$> lookup "tag" info
         cid <- CommitId . BC.pack <$> lookup "object" info
+
+        tagger <- T.pack <$> lookup "tagger" info
+        let tagTagger = T.dropEnd 1 $ T.dropWhileEnd (/= ' ') $ T.dropEnd 1 $ T.dropWhileEnd (/= ' ') tagger
+        tagTime <- parseTimeM False defaultTimeLocale "%s %z" $ T.unpack $ T.drop (T.length tagTagger + 1) tagger
+
         let tagMessage = T.pack $ unlines $ dropWhile null message
         Just $ do
             tagObject <- liftIO $ mkCommit repo cid
