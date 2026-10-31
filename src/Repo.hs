@@ -68,8 +68,7 @@ data Repo
         { gitDir :: FilePath
         , gitWritable :: Bool
         , gitLock :: MVar ()
-        , gitInotify :: MVar (Maybe ( INotify, TChan (Tag Commit) ))
-        , gitWatchedBranches :: MVar (Map Text [ TVar (Maybe Commit) ])
+        , gitInotify :: MVar (Maybe GitInotify)
         }
 
 instance Show Repo where
@@ -178,7 +177,6 @@ openRepo gitWritable path = do
         Just gitDir -> do
             gitLock <- newMVar ()
             gitInotify <- newMVar Nothing
-            gitWatchedBranches <- newMVar M.empty
             return $ Just GitRepo {..}
         Nothing -> do
             return Nothing
@@ -328,6 +326,12 @@ findUpstreamRef repo@GitRepo {..} ref = liftIO $ do
                 -> return $ Just $ T.pack upstream
             _ -> return Nothing
         _ -> return Nothing
+
+getGitRefPath :: MonadIO m => Repo -> Text -> m (Maybe FilePath)
+getGitRefPath GitRepo {..} ref = liftIO $ do
+    readProcessWithExitCode "git" [ "--git-dir=" <> gitDir, "rev-parse", "--symbolic-full-name", T.unpack ref ] "" >>= \case
+        ( ExitSuccess, out, _ ) | [ path ] <- lines out -> return (Just path)
+        ( _, _, _ ) -> return Nothing
 
 
 getCommitDetails :: (MonadIO m, MonadFail m) => Commit -> m CommitDetails
@@ -502,41 +506,77 @@ pushToBranch Branch {..} Commit {..} = do
                 | otherwise -> error "createProcess must return stdout handle"
 
 
-repoInotify :: Repo -> IO ( INotify, TChan (Tag Commit) )
-repoInotify repo@GitRepo {..} = modifyMVar gitInotify $ \case
-    cur@(Just info) ->
-        return ( cur, info )
+data GitInotify = GitInotify
+    { giInotify :: INotify
+    , giTags :: MVar (Maybe ( WatchDescriptor, TChan (Tag Commit) ))
+    , giDirs :: MVar (Map FilePath ( WatchDescriptor, Map Text (TVar (Maybe Commit)) ))
+    }
+
+repoInotify :: Repo -> IO GitInotify
+repoInotify GitRepo {..} = modifyMVar gitInotify $ \case
+    cur@(Just gi) ->
+        return ( cur, gi )
     Nothing -> do
-        inotify <- initINotify
-        tagsChan <- newBroadcastTChanIO
-        let info = ( inotify, tagsChan )
+        giInotify <- initINotify
+        giTags <- newMVar Nothing
+        giDirs <- newMVar M.empty
+        let gi = GitInotify {..}
+        return ( Just gi, gi )
 
-        _ <- addWatch inotify [ MoveIn ] (BC.pack headsDir) $ \event -> do
-            let branch = decodeUtf8 $ filePath event
-            tvars <- fromMaybe [] . M.lookup branch <$> readMVar gitWatchedBranches
-            when (not $ null tvars) $ do
-                commit <- readBranch repo branch
-                atomically $ do
-                    mapM_ (`writeTVar` commit) tvars
+watchBranch :: (MonadIO m, MonadFail m) => Repo -> Text -> m (Either Commit (STM (Maybe Commit)))
+watchBranch repo@GitRepo {..} ref = liftIO $ do
+    mbCommit <- tryReadCommit repo ref
+    gi@GitInotify {..} <- repoInotify repo
+    getGitRefPath repo ref >>= \case
+        Just path -> Right <$> do
+            let ( dir, sbranch ) = splitFileName path
+                branch = T.pack sbranch
+            modifyMVar giDirs $ \dirMap ->
+                case M.lookup dir dirMap of
+                    Just ( wd, branchMap ) ->
+                        case M.lookup branch branchMap of
+                            Just tvar -> do
+                                return ( dirMap, readTVar tvar )
+                            Nothing -> do
+                                tvar <- newTVarIO mbCommit
+                                return ( M.insert dir ( wd, M.insert branch tvar branchMap ) dirMap, readTVar tvar )
 
-        _ <- addWatch inotify [ MoveIn ] (BC.pack tagsDir) $ \event -> do
-            tryReadTag repo (decodeUtf8 $ filePath event) >>= \case
-                Just tag -> atomically $ writeTChan tagsChan tag
-                Nothing  -> return ()
+                    Nothing -> do
+                        wd <- addBranchWatch gi dir
+                        tvar <- newTVarIO mbCommit
+                        return ( M.insert dir ( wd, M.singleton branch tvar ) dirMap, readTVar tvar )
 
-        return ( Just info, info )
+        Nothing | Just commit <- mbCommit -> do
+            return $ Left commit
+
+        _ -> do
+            fail $ "ref ‘" <> T.unpack ref <> "’ not found in ‘" <> gitDir <> "’"
   where
-    headsDir = gitDir </> "refs/heads"
-    tagsDir = gitDir </> "refs/tags"
-
-watchBranch :: MonadIO m => Repo -> Text -> m (STM (Maybe Commit))
-watchBranch repo@GitRepo {..} branch = liftIO $ do
-    var <- newTVarIO =<< readBranch repo branch
-    void $ repoInotify repo
-    modifyMVar_ gitWatchedBranches $ return . M.insertWith (++) branch [ var ]
-    return $ readTVar var
+    addBranchWatch GitInotify {..} dir = do
+        addWatch giInotify [ MoveIn ] (BC.pack $ gitDir </> dir) $ \event -> do
+            let branch = decodeUtf8 $ filePath event
+            withMVar giDirs $ \dirMap -> do
+                Just ( _, branchMap ) <- return $ M.lookup dir dirMap
+                case M.lookup branch branchMap of
+                    Just tvar -> do
+                        commit <- readCommitFromFile repo (dir </> T.unpack branch)
+                        atomically $ writeTVar tvar commit
+                    Nothing -> do
+                        return ()
 
 watchTags :: MonadIO m => Repo -> m (TChan (Tag Commit))
-watchTags repo = liftIO $ do
-    tagsChan <- snd <$> repoInotify repo
-    atomically $ dupTChan tagsChan
+watchTags repo@GitRepo {..} = liftIO $ do
+    GitInotify {..} <- repoInotify repo
+    chan <- modifyMVar giTags $ \case
+        cur@(Just ( _, chan )) -> do
+            return ( cur, chan )
+        Nothing -> do
+            chan <- newBroadcastTChanIO
+            wd <- addWatch giInotify [ MoveIn ] (BC.pack tagsDir) $ \event -> do
+                tryReadTag repo (decodeUtf8 $ filePath event) >>= \case
+                    Just tag -> atomically $ writeTChan chan tag
+                    Nothing  -> return ()
+            return ( Just ( wd, chan ), chan )
+    atomically $ dupTChan chan
+  where
+    tagsDir = gitDir </> "refs/tags"

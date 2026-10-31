@@ -132,10 +132,14 @@ evaluateDeclaredRevision repo = \case
             ts -> return $ StaticRef $ tagObject $ foldl1' sel ts
 
     WatchedRef (TextRef ref) -> do
-        watched <- watchBranch repo ref
-        output <- getOutput
-        outputEvent output $ TestMessage $ "watch-branch-started " <> ref
-        return $ WatchedRef $ BranchRef watched
+        watchBranch repo ref >>= \case
+            Right watched -> do
+                output <- getOutput
+                outputEvent output $ TestMessage $ "watch-branch-started " <> ref
+                return $ WatchedRef $ BranchRef watched
+            Left commit -> do
+                return $ StaticRef commit
+
     WatchedRef (TagRef wtPattern wtUpdate) -> do
         wtChan <- watchTags repo
         value <- filter (Glob.match wtPattern . T.unpack . tagTag) <$> listTags repo >>= \case
