@@ -62,10 +62,8 @@ To run jobs for a git commit range:
 minici run <commit>..<commit>
 ```
 
-or:
-```
-minici run --range=<commit>..<commit>
-```
+See [watch expressions](#watch-expressions) below for details of supported expressions.
+
 
 To run jobs for commits that are in local `<branch>`, but not yet in its upstream:
 ```
@@ -88,12 +86,56 @@ To watch changes on given `<branch>` and run jobs for each new commit:
 minici run --new-commits-on=<branch>
 ```
 
+or equivalently:
+```
+minici run '<branch>..watch(<branch>)'
+```
+
 To watch new tags and run jobs for each tag matching given pattern:
 ```
 minici run --new-tags=<pattern>
 ```
 
-The above options `--range`, `--since-upstream`, etc can be arbitrarily combined.
+or equivalently:
+```
+minici run 'newtags(<pattern>)'
+```
+
+The above expressions and options can be arbitrarily combined.
+
+
+Watch expressions
+-----------------
+
+The `run` command accepts `<range-expr>` to describe set of commits for which
+to execute the jobs, potentially watching for changes in repository branches or
+tags. The `<range-expr>` can be of the form:
+
+* `<commit-expr>..<commit-expr>` giving range of commits;
+
+* `<commit-expr>` giving single commit;
+
+* `tags(<pattern>)` denoting list of all tags matching given `<pattern>`;
+
+* `watch(<range-expr>)` is an expression initially equivalent to its parameter,
+  but `minici` continues to watch the repository for changes affecting the
+  expression and creates or cancels additional jobs as the value of the
+  expression changes.
+
+Where `<commit-expr>` can be:
+
+* `<commit>`, e.g. the git commit hash;
+
+* `highesttag(<pattern>)`, which from all the tags matching `<pattern>`, selects
+  the highest one as given by natural/version sort (e.g. `v10.2` > `v9.4`);
+
+* `lasttag(<pattern>)`, which from all the tags matching `<pattern>`, selects
+  the last created one (as given by the `tagger` date in tag object);
+
+* `watch(<commit-expr>)` is analogous to `watch` for `<range-expr>`.
+
+And `<pattern>` is a shell glob pattern, as implemented
+by the [Glob package](https://hackage.haskell.org/package/Glob/docs/System-FilePath-Glob.html#v:compile).
 
 
 Explicit script file
