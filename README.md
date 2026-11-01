@@ -70,7 +70,13 @@ To run jobs for commits that are in local `<branch>`, but not yet in its upstrea
 minici run --since-upstream=<branch>
 ```
 
-For current branch, the name can be omitted:
+or equivalently:
+```
+minici run '<branch>..upstream(<branch>)'
+```
+
+This is the default action the `run` command will perform without any
+arguments, using the current branch as `<branch>` when executed as:
 ```
 minici run
 ```
@@ -131,6 +137,8 @@ Where `<commit-expr>` can be:
 
 * `lasttag(<pattern>)`, which from all the tags matching `<pattern>`, selects
   the last created one (as given by the `tagger` date in tag object);
+
+* `upstream(<branch>)` refers to the upstream (remote) branch of the given `<branch>`;
 
 * `watch(<commit-expr>)` is analogous to `watch` for `<range-expr>`.
 

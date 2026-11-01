@@ -47,6 +47,7 @@ import Repo
 
 data DeclaredRef
     = TextRef Text
+    | UpstreamRef Text
     | TagRef Pattern (Tag Commit -> Tag Commit -> Tag Commit)
 
 type family StaticRef' d :: Type where
@@ -131,6 +132,10 @@ textCommitRef (CommitRef suffix cid) = textCommitId cid <> suffix
 evaluateDeclaredRevision :: (MonadIO m, MonadFail m, MonadOutput m) => Repo -> DeclaredRevisionExpression -> m RevisionExpression
 evaluateDeclaredRevision repo = \case
     StaticRef (TextRef ref) -> StaticRef <$> readCommit repo ref
+    StaticRef (UpstreamRef ref) ->
+        findUpstreamRef repo ref >>= \case
+            Just uref -> evaluateDeclaredRevision repo $ StaticRef (TextRef uref)
+            Nothing -> fail $ "no upstream ref found for ‘" <> T.unpack ref <> "’ in ‘" <> show repo <> "’"
     StaticRef (TagRef pat sel) -> do
         filter (Glob.match pat . T.unpack . tagTag) <$> listTags repo >>= \case
             [] -> fail $ "no tag matching " <> show (decompile pat) <> " found"
@@ -144,6 +149,11 @@ evaluateDeclaredRevision repo = \case
                 return $ WatchedRef $ BranchRef watched
             Left commit -> do
                 return $ StaticRef commit
+
+    WatchedRef (UpstreamRef ref) ->
+        findUpstreamRef repo ref >>= \case
+            Just uref -> evaluateDeclaredRevision repo $ WatchedRef (TextRef uref)
+            Nothing -> fail $ "no upstream ref found for ‘" <> T.unpack ref <> "’ in ‘" <> show repo <> "’"
 
     WatchedRef (TagRef wtPattern wtUpdate) -> do
         wtChan <- watchTags repo
@@ -278,12 +288,16 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
               return range
           ]
 
-    parseRevision :: ExprParser DeclaredRangeExpression
-    parseRevision = do
-        tok <- fmap T.concat $ some $ choice
+    parseTextRef :: ExprParser Text
+    parseTextRef = do
+        fmap T.concat $ some $ choice
             [ takeWhile1P Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '/' ])
             , try $ string "." <* notFollowedBy (char '.')
             ]
+
+    parseRevision :: ExprParser DeclaredRangeExpression
+    parseRevision = do
+        tok <- parseTextRef
 
         range <- choice
             [ between (char '(') (char ')') $ do
@@ -300,6 +314,9 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
                     "lasttag" -> do
                         pat <- parseTagPattern
                         return $ SingleRevisionExpression $ StaticRef $ TagRef pat laterTag
+                    "upstream" -> do
+                        ref <- parseTextRef
+                        return $ SingleRevisionExpression $ StaticRef $ UpstreamRef ref
                     _ -> unexpected $ Tokens $ NE.fromList $ chunkToTokens @Text Proxy tok
 
             , do
