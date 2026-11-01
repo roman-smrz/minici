@@ -73,8 +73,13 @@ data WatchedTags a = WatchedTags
     , wtChan :: TChan (Tag Commit)
     }
 
+data TagPattern = TagPattern
+    { tpPattern :: Pattern
+    , tpOnlyNew :: Bool
+    }
+
 type family WatchedTags' d :: Type where
-    WatchedTags' Declared = Pattern
+    WatchedTags' Declared = TagPattern
     WatchedTags' Evaluated = WatchedTags [ Tag Commit ]
 
 
@@ -106,7 +111,7 @@ watchedRange :: DeclaredRangeExpression -> DeclaredRangeExpression
 watchedRange = \case
     SingleRevisionExpression rev -> SingleRevisionExpression (watchedRevision rev)
     RangeExpression r1 r2 -> RangeExpression (watchedRevision r1) (watchedRevision r2)
-    StaticTagsExpression pat -> WatchedTagsExpression pat
+    StaticTagsExpression pat -> WatchedTagsExpression TagPattern { tpOnlyNew = False, tpPattern = pat }
     WatchedTagsExpression pat -> WatchedTagsExpression pat
 
 
@@ -158,10 +163,16 @@ evaluateDeclaredRange repo = \case
         RangeExpression <$> evaluateDeclaredRevision repo a <*> evaluateDeclaredRevision repo b
     StaticTagsExpression pat ->
         StaticTagsExpression . filter (Glob.match pat . T.unpack . tagTag) <$> listTags repo
-    WatchedTagsExpression wtPattern -> do
+    WatchedTagsExpression TagPattern {..} -> do
+        let wtPattern = tpPattern
         wtChan <- watchTags repo
-        wtValue <- liftIO . newTVarIO . filter (Glob.match wtPattern . T.unpack . tagTag) =<< listTags repo
+        value <- if tpOnlyNew
+            then return []
+            else filter (Glob.match wtPattern . T.unpack . tagTag) <$> listTags repo
+        wtValue <- liftIO $ newTVarIO value
         let wtUpdate = (:)
+        output <- getOutput
+        outputEvent output $ TestMessage $ "watch-tags-started " <> T.pack (decompile wtPattern)
         return $ WatchedTagsExpression WatchedTags {..}
 
 evaluateRevision :: RevisionExpression -> STM (Maybe CommitRef)
@@ -279,6 +290,10 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
                 case tok of
                     "watch" -> watchedRange <$> parseRange
                     "tags" -> StaticTagsExpression <$> parseTagPattern
+                    "newtags" -> do
+                        tpPattern <- parseTagPattern
+                        let tpOnlyNew = True
+                        return $ WatchedTagsExpression TagPattern {..}
                     "highesttag" -> do
                         pat <- parseTagPattern
                         return $ SingleRevisionExpression $ StaticRef $ TagRef pat higherTag
