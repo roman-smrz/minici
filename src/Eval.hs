@@ -12,6 +12,7 @@ module Eval (
     loadJobSetById,
 ) where
 
+import Control.Concurrent.STM
 import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Except
@@ -29,7 +30,9 @@ import System.FilePath
 import Config
 import Destination
 import Expr
+import Expression
 import Job.Types
+import Output
 import Repo
 
 data EvalInput = EvalInput
@@ -39,6 +42,7 @@ data EvalInput = EvalInput
     , eiContainingRepo :: Maybe Repo
     , eiOtherRepos :: [ ( RepoName, Repo ) ]
     , eiDestinations :: [ ( DestinationName, Destination ) ]
+    , eiOutput :: Output
     }
 
 data EvalError
@@ -58,6 +62,9 @@ newtype Eval a = Eval (ReaderT EvalInput (ExceptT EvalError IO) a)
 
 instance MonadFail Eval where
     fail = throwError . OtherEvalError . T.pack
+
+instance MonadOutput Eval where
+    getOutput = asks eiOutput
 
 runEval :: Eval a -> EvalInput -> IO (Either EvalError a)
 runEval (Eval action) einput = runExceptT $ flip runReaderT einput action
@@ -349,13 +356,31 @@ canonicalJobName [] _ _ = throwError $ OtherEvalError "expected job name"
 
 readRepoRefFromIdRef :: [ Text ] -> FilePath -> Repo -> Eval ( RepoRef, [ Text ] )
 readRepoRefFromIdRef (r : rs) subdir repo = do
-    tryReadCommit repo r >>= \case
-        Just commit
-            | subdir == "" -> return ( RepoRefCommit commit, rs )
-            | otherwise -> return . ( , rs ) . RepoRefTree =<< getSubtree (Just commit) subdir =<< getCommitTree commit
-        Nothing -> tryReadTree repo subdir r >>= \case
-            Just tree -> return ( RepoRefTree tree, rs )
-            Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
+    case parseRangeExpression r of
+        Left err -> throwError $ OtherEvalError $ T.pack err
+        Right (SingleRevisionExpression revDecl) -> do
+            doEvaluateRev revDecl >>= \case
+                Just commit
+                    | subdir == "" -> return ( RepoRefCommit commit, rs )
+                    | otherwise -> return . ( , rs ) . RepoRefTree =<< getSubtree (Just commit) subdir =<< getCommitTree commit
+                Nothing -> tryReadTree repo subdir r >>= \case
+                    Just tree -> return ( RepoRefTree tree, rs )
+                    Nothing -> throwError $ OtherEvalError $ "failed to resolve ‘" <> r <> "’ to a commit or tree in " <> T.pack (show repo)
+        Right _ -> throwError $ OtherEvalError $ "only single revision expression is supported in job ref now"
+  where
+    doEvaluateRev revDecl = do
+        mbRevExpr <- (Just <$> evaluateDeclaredRevision repo revDecl) `catchError` (const $ return Nothing)
+        case mbRevExpr of
+            Just revExpr -> do
+                when (isRevisionExpressionDynamic revExpr) $ do
+                    throwError $ OtherEvalError $ "dynamic watch expression is not yet supported in job ref"
+                liftIO (atomically (evaluateRevision revExpr)) >>= \case
+                    Just commitRef -> getCommitFromRef repo commitRef
+                    Nothing -> return Nothing
+            Nothing -> do
+                return Nothing
+
+
 readRepoRefFromIdRef [] _ _ = throwError $ OtherEvalError $ "expected commit or tree reference"
 
 canonicalCommitConfig :: [ Text ] -> Repo -> Eval JobSet

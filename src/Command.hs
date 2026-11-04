@@ -145,6 +145,7 @@ getEvalInput = CommandExec $ do
     eiContainingRepo <- asks ciContainingRepo
     eiOtherRepos <- asks ciOtherRepos
     eiDestinations <- asks ciDestinations
+    eiOutput <- asks ciOutput
     return EvalInput {..}
 
 cmdEvalWith :: (EvalInput -> EvalInput) -> Eval a -> CommandExec a

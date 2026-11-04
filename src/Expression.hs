@@ -9,6 +9,7 @@ module Expression (
     CommitRange(..),
     evaluateDeclaredRevision, evaluateDeclaredRange,
     evaluateRevision, evaluateRange,
+    getCommitFromRef,
     getRangeCommits, getAddedRangeCommits,
 
     isRangeExpressionDynamic,
@@ -207,8 +208,11 @@ evaluateRange = \case
     WatchedTagsExpression wt -> do
         CommitSet . map (CommitRef "" . commitId . tagObject) <$> updateWatchedTags wt
 
+getCommitFromRef :: MonadIO m => Repo -> CommitRef -> m (Maybe Commit)
+getCommitFromRef repo = liftIO . tryReadCommit repo . textCommitRef
+
 getCommitIdFromRef :: MonadIO m => Repo -> CommitRef -> m (Maybe CommitId)
-getCommitIdFromRef repo = liftIO . fmap (fmap commitId) . tryReadCommit repo . textCommitRef
+getCommitIdFromRef repo = fmap (fmap commitId) . getCommitFromRef repo
 
 getRangeCommits :: MonadIO m => Repo -> CommitRange -> m [ Commit ]
 getRangeCommits repo = \case
