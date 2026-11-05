@@ -22,10 +22,10 @@ import System.FilePath.Glob
 import Command
 import Config
 import Eval
-import Expression
 import Job
 import Job.Types
 import Output
+import Range
 import Repo
 import Terminal
 

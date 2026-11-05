@@ -48,12 +48,12 @@ executable minici
         Destination
         Eval
         Expr
-        Expression
         FileUtils
         Job
         Job.Types
         Output
         Paths_minici
+        Range
         Repo
         Terminal
         Version

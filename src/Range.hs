@@ -1,4 +1,4 @@
-module Expression (
+module Range (
     DeclaredRef(..),
     StaticRef',
     WatchedRef(..),
@@ -268,18 +268,18 @@ updateWatchedTags wt@WatchedTags {..} = do
             updateWatchedTags wt
 
 
-type ExprParser = Parsec Void Text
+type RangeParser = Parsec Void Text
 
 parseRangeExpression :: Text -> Either String DeclaredRangeExpression
 parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
   where
-    parser :: ExprParser DeclaredRangeExpression
+    parser :: RangeParser DeclaredRangeExpression
     parser = do
         range <- parseRange
         eof
         return range
 
-    parseRange :: ExprParser DeclaredRangeExpression
+    parseRange :: RangeParser DeclaredRangeExpression
     parseRange = do
         range <- parseRevision
         choice
@@ -292,14 +292,14 @@ parseRangeExpression = bimap errorBundlePretty id . runParser parser ""
               return range
           ]
 
-    parseTextRef :: ExprParser Text
+    parseTextRef :: RangeParser Text
     parseTextRef = do
         fmap T.concat $ some $ choice
             [ takeWhile1P Nothing (\x -> isAlphaNum x || x `elem` [ '_', '-', '/' ])
             , try $ string "." <* notFollowedBy (char '.')
             ]
 
-    parseRevision :: ExprParser DeclaredRangeExpression
+    parseRevision :: RangeParser DeclaredRangeExpression
     parseRevision = do
         tok <- parseTextRef
 
