@@ -208,18 +208,6 @@ loadJobSetFromRoot root commit = case root of
         , jobsetJobsEither = Right $ configJobs config
         }
 
-rangeSource :: Text -> Text -> CommandExec JobSource
-rangeSource base tip = do
-    root <- getJobRoot
-    repo <- getDefaultRepo
-    commits <- listCommits repo (base <> ".." <> tip)
-    jobsets <- forM commits $ \commit -> do
-        tree <- getCommitTree commit
-        cmdEvalWith (\ei -> ei
-            { eiCurrentIdRev = JobIdRepo Nothing (JobIdTree (treeSubdir tree) (treeId tree)) : eiCurrentIdRev ei
-            }) . evalJobSet [ ( Nothing, RepoRefTree tree ) ] =<< loadJobSetFromRoot root commit
-    oneshotJobSource jobsets
-
 
 watchExpressionSource :: RangeExpression -> CommandExec JobSource
 watchExpressionSource expr = do
@@ -353,19 +341,19 @@ cmdRun (RunCommand RunOptions {..} args) = do
             emptyJobSource
 
         JobRootRepo repo -> do
-            Just base <- findUpstreamRef repo "HEAD"
-            rangeSource base "HEAD"
+            watchExpressionSource =<< evaluateDeclaredRange repo (RangeExpression (StaticRef (TextRef "HEAD")) (StaticRef (UpstreamRef "HEAD")))
 
         JobRootConfig config -> do
             argumentJobSource (jobName <$> configJobs config)
 
-    ranges <- forM rangeOptions $ \( mbBase, paramTip ) -> do
-        ( base, tip ) <- case mbBase of
-            Just base -> return ( base, paramTip )
+    ranges <- forM rangeOptions $ \( mbBase, tip ) -> do
+        repo <- getDefaultRepo
+        range <- case mbBase of
+            Just base ->
+                evaluateDeclaredRange repo (RangeExpression (StaticRef (TextRef tip)) (StaticRef (TextRef base)))
             Nothing -> do
-                Just base <- flip findUpstreamRef paramTip =<< getDefaultRepo
-                return ( base, paramTip )
-        rangeSource base tip
+                evaluateDeclaredRange repo (RangeExpression (StaticRef (TextRef tip)) (StaticRef (UpstreamRef tip)))
+        watchExpressionSource range
 
     branches <- mapM watchBranchSource roNewCommitsOn
     tags <- mapM watchTagSource roNewTags
